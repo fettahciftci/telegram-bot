@@ -5,7 +5,7 @@ from threading import Thread
 
 BOT_TOKEN = '8904642273:AAF6sQtbS9ZpoSRLNOeZLO9VFTWq1EsAY9s'
 
-app = Flask('')
+app = Flask(__name__)
 
 @app.route('/')
 def home():
@@ -24,13 +24,13 @@ async def silver(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('🥈 Gümüş: $28.50/oz')
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("altin", gold))
-    app.add_handler(CommandHandler("gumus", silver))
-    print('Bot aktif!')
-    app.run_polling()
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("altin", gold))
+    application.add_handler(CommandHandler("gumus", silver))
+    print('✅ Bot aktif!')
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    Thread(target=run_flask).start()
+    Thread(target=run_flask, daemon=True).start()
     main()
