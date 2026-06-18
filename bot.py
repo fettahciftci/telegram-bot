@@ -162,4 +162,37 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == 'waiting_shorten':
         try:
             short_url = shorten_link(text)
-            msg = "
+            msg = "LINK KISALTILDI\n\n"
+            msg += "Orijinal: " + text + "\n"
+            msg += "Kisa: " + short_url
+            await update.message.reply_text(msg)
+        except Exception as e:
+            await update.message.reply_text("Link kisaltilamadi: " + str(e))
+        del user_states[user_id]
+
+async def run_bot():
+    print('Bot baslatiliyor...')
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    print('Bot aktif!')
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    while True:
+        await asyncio.sleep(1)
+
+def main():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    Thread(target=run_flask, daemon=True).start()
+    try:
+        loop.run_until_complete(run_bot())
+    except KeyboardInterrupt:
+        print('Bot kapandi')
+    finally:
+        loop.close()
+
+if __name__ == '__main__':
+    main()
