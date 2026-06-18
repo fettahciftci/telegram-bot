@@ -2,10 +2,11 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from flask import Flask
 from threading import Thread
+import asyncio
 
 BOT_TOKEN = '8904642273:AAF6sQtbS9ZpoSRLNOeZLO9VFTWq1EsAY9s'
 
-# Flask sunucusu (Render'ın uykuya geçmesini engeller)
+# Flask sunucusu
 app = Flask(__name__)
 
 @app.route('/')
@@ -25,19 +26,37 @@ async def gold(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def silver(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('🥈 Gümüş: $28.50/oz')
 
-def main():
-    # v21.x ile bot başlatma
+async def run_bot():
+    """Bot'u asyncio ile çalıştır"""
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("altin", gold))
     application.add_handler(CommandHandler("gumus", silver))
     
     print('✅ Bot aktif!')
-    # Polling'i başlat
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    
+    # Sonsuz döngü
+    while True:
+        await asyncio.sleep(1)
+
+def main():
+    # Python 3.14 için manuel event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Flask'ı ayrı thread'de başlat
+    Thread(target=run_flask, daemon=True).start()
+    
+    # Bot'u ana thread'de çalıştır
+    try:
+        loop.run_until_complete(run_bot())
+    except KeyboardInterrupt:
+        print('Bot kapatıldı')
+    finally:
+        loop.close()
 
 if __name__ == '__main__':
-    # Flask'ı arka planda başlat
-    Thread(target=run_flask, daemon=True).start()
-    # Bot'u ana döngüde çalıştır
     main()
