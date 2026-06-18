@@ -8,9 +8,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 BOT_TOKEN = '8904642273:AAF6sQtbS9ZpoSRLNOeZLO9VFTWq1EsAY9s'
-OPENROUTER_API_KEY = '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'
+GROQ_API_KEY = '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'
 GOLD_API_KEY = 'goldapi-615dd989f010af41bbde17b0213d7075-io'
-AI_MODEL = 'qwen/qwen3-coder:free'
+AI_MODEL = 'llama3-8b-8192'
 
 flask_app = Flask(__name__)
 
@@ -23,6 +23,15 @@ def run_flask():
 
 user_states = {}
 user_chat_history = {}
+
+MAIN_KEYBOARD = [
+    [InlineKeyboardButton("Altin Gram (TL)", callback_data='gold')],
+    [InlineKeyboardButton("Gumus Gram (TL)", callback_data='silver')],
+    [InlineKeyboardButton("Hesapla (Gram -> TL)", callback_data='calc')],
+    [InlineKeyboardButton("QR Kod Olustur", callback_data='qr')],
+    [InlineKeyboardButton("Link Kisalt", callback_data='shorten')],
+    [InlineKeyboardButton("AI Sohbet (Groq)", callback_data='ai_chat')]
+]
 
 def get_prices():
     try:
@@ -89,10 +98,8 @@ def ask_ai(user_id, message):
             user_chat_history[user_id] = user_chat_history[user_id][-10:]
         
         headers = {
-            "Authorization": "Bearer " + OPENROUTER_API_KEY,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/fettahciftci/telegram-bot",
-            "X-Title": "Telegram Bot"
+            "Authorization": "Bearer " + GROQ_API_KEY,
+            "Content-Type": "application/json"
         }
         
         data = {
@@ -101,10 +108,10 @@ def ask_ai(user_id, message):
         }
         
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            "https://api.groq.com/openai/v1/chat/completions",
             headers=headers,
             json=data,
-            timeout=60
+            timeout=30
         )
         
         if response.status_code == 200:
@@ -118,15 +125,11 @@ def ask_ai(user_id, message):
         return "AI hatasi: " + str(e)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("Altin Gram (TL)", callback_data='gold')],
-        [InlineKeyboardButton("Gumus Gram (TL)", callback_data='silver')],
-        [InlineKeyboardButton("Hesapla (Gram -> TL)", callback_data='calc')],
-        [InlineKeyboardButton("QR Kod Olustur", callback_data='qr')],
-        [InlineKeyboardButton("Link Kisalt", callback_data='shorten')],
-        [InlineKeyboardButton("AI Sohbet (Qwen3)", callback_data='ai_chat')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    user_id = update.message.from_user.id
+    if user_id in user_states:
+        del user_states[user_id]
+    
+    reply_markup = InlineKeyboardMarkup(MAIN_KEYBOARD)
     await update.message.reply_text(
         'Altin & Gumus Bot + AI\n\nBir buton sec:',
         reply_markup=reply_markup
@@ -138,63 +141,74 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
     
-    if data == 'gold':
-        prices = get_prices()
-        if prices:
-            msg = "ALTI GRAM FIYATI (GÜNCEL)\n\n"
-            msg += "USD/TRY: " + str(prices['usd_try']) + " TL\n"
-            msg += "Altin Ons: $" + str(prices['gold_ons']) + "\n"
-            msg += "1 Gram Altin: " + str(prices['gold_gram']) + " TL\n\n"
-            msg += "Kaynak: GoldAPI.io"
-            await query.edit_message_text(msg)
-        else:
-            await query.edit_message_text("Fiyat bilgisi alinamadi. GoldAPI key kontrol et.")
+    # ÖNEMLİ: Butona basıldığında eski state'i temizle
+    if user_id in user_states:
+        del user_states[user_id]
     
-    elif data == 'silver':
-        prices = get_prices()
-        if prices:
-            msg = "GUMUS GRAM FIYATI (GÜNCEL)\n\n"
-            msg += "USD/TRY: " + str(prices['usd_try']) + " TL\n"
-            msg += "Gumus Ons: $" + str(prices['silver_ons']) + "\n"
-            msg += "1 Gram Gumus: " + str(prices['silver_gram']) + " TL\n\n"
-            msg += "Kaynak: GoldAPI.io"
-            await query.edit_message_text(msg)
-        else:
-            await query.edit_message_text("Fiyat bilgisi alinamadi. GoldAPI key kontrol et.")
-    
-    elif data == 'calc':
-        user_states[user_id] = 'waiting_calc'
-        await query.edit_message_text(
-            "HESAPLAMA MODU\n\n"
-            "Kac gram hesaplamak istiyorsun?\n"
-            "Ornek: 5\n\n"
-            "Gram miktarini yaz:"
-        )
-    
-    elif data == 'qr':
-        user_states[user_id] = 'waiting_qr'
-        await query.edit_message_text(
-            "QR KOD OLUSTURUCU\n\n"
-            "QR kod yapmak istedigin linki gonder:\n"
-            "Ornek: https://example.com"
-        )
-    
-    elif data == 'shorten':
-        user_states[user_id] = 'waiting_shorten'
-        await query.edit_message_text(
-            "LINK KISALTICI\n\n"
-            "Kisaltmak istedigin linki gonder:\n"
-            "Ornek: https://example.com/cok-uzun-link"
-        )
-    
-    elif data == 'ai_chat':
-        user_states[user_id] = 'waiting_ai'
-        await query.edit_message_text(
-            "AI SOHBET (Qwen3 Coder)\n\n"
-            "Artik AI ile sohbet edebilirsin!\n"
-            "Sorularini yaz, cevap verecek.\n\n"
-            "Cikmak icin /start yaz."
-        )
+    try:
+        if data == 'gold':
+            prices = get_prices()
+            if prices:
+                msg = "ALTI GRAM FIYATI (GÜNCEL)\n\n"
+                msg += "USD/TRY: " + str(prices['usd_try']) + " TL\n"
+                msg += "Altin Ons: $" + str(prices['gold_ons']) + "\n"
+                msg += "1 Gram Altin: " + str(prices['gold_gram']) + " TL\n\n"
+                msg += "Kaynak: GoldAPI.io"
+                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
+            else:
+                await query.edit_message_text("Fiyat bilgisi alinamadi. GoldAPI key kontrol et.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
+        
+        elif data == 'silver':
+            prices = get_prices()
+            if prices:
+                msg = "GUMUS GRAM FIYATI (GÜNCEL)\n\n"
+                msg += "USD/TRY: " + str(prices['usd_try']) + " TL\n"
+                msg += "Gumus Ons: $" + str(prices['silver_ons']) + "\n"
+                msg += "1 Gram Gumus: " + str(prices['silver_gram']) + " TL\n\n"
+                msg += "Kaynak: GoldAPI.io"
+                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
+            else:
+                await query.edit_message_text("Fiyat bilgisi alinamadi. GoldAPI key kontrol et.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
+        
+        elif data == 'calc':
+            user_states[user_id] = 'waiting_calc'
+            await query.edit_message_text(
+                "HESAPLAMA MODU\n\n"
+                "Kac gram hesaplamak istiyorsun?\n"
+                "Ornek: 5\n\n"
+                "Gram miktarini yaz:",
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+            )
+        
+        elif data == 'qr':
+            user_states[user_id] = 'waiting_qr'
+            await query.edit_message_text(
+                "QR KOD OLUSTURUCU\n\n"
+                "QR kod yapmak istedigin linki gonder:\n"
+                "Ornek: https://example.com",
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+            )
+        
+        elif data == 'shorten':
+            user_states[user_id] = 'waiting_shorten'
+            await query.edit_message_text(
+                "LINK KISALTICI\n\n"
+                "Kisaltmak istedigin linki gonder:\n"
+                "Ornek: https://example.com/cok-uzun-link",
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+            )
+        
+        elif data == 'ai_chat':
+            user_states[user_id] = 'waiting_ai'
+            await query.edit_message_text(
+                "AI SOHBET (Groq Llama3)\n\n"
+                "Artik AI ile sohbet edebilirsin!\n"
+                "Sorularini yaz, cevap verecek.\n\n"
+                "Ana menuye donmek icin bir butona tikla.",
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+            )
+    except Exception as e:
+        print("Buton hatasi:", e)
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -217,19 +231,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += "Altin: " + str(round(gold_total, 2)) + " TL\n"
                 msg += "Gumus: " + str(round(silver_total, 2)) + " TL\n\n"
                 msg += "Fiyatlar güncel (GoldAPI.io)"
-                await update.message.reply_text(msg)
+                await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
             else:
-                await update.message.reply_text("Fiyat bilgisi alinamadi.")
+                await update.message.reply_text("Fiyat bilgisi alinamadi.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
         except ValueError:
-            await update.message.reply_text("Gecersiz sayi. Lutfen bir sayi gir (orn: 5)")
+            await update.message.reply_text("Gecersiz sayi. Lutfen bir sayi gir (orn: 5)", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
         del user_states[user_id]
     
     elif state == 'waiting_qr':
         try:
             bio = create_qr(text)
-            await update.message.reply_photo(photo=bio, caption="QR Kod:\n" + text)
+            await update.message.reply_photo(photo=bio, caption="QR Kod:\n" + text, reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
         except Exception as e:
-            await update.message.reply_text("QR kod olusturulamadi: " + str(e))
+            await update.message.reply_text("QR kod olusturulamadi: " + str(e), reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
         del user_states[user_id]
     
     elif state == 'waiting_shorten':
@@ -238,19 +252,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg = "LINK KISALTILDI\n\n"
             msg += "Orijinal: " + text + "\n"
             msg += "Kisa: " + short_url
-            await update.message.reply_text(msg)
+            await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
         except Exception as e:
-            await update.message.reply_text("Link kisaltilamadi: " + str(e))
+            await update.message.reply_text("Link kisaltilamadi: " + str(e), reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
         del user_states[user_id]
     
     elif state == 'waiting_ai':
-        await update.message.reply_text("AI dusunuyor...")
+        await update.message.reply_text("AI dusunuyor...", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
         response = ask_ai(user_id, text)
         
         if len(response) > 4000:
             response = response[:4000] + "\n\n[Devami kesildi...]"
         
-        await update.message.reply_text(response)
+        await update.message.reply_text(response, reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
 
 async def run_bot():
     print('Bot baslatiliyor...')
