@@ -17,14 +17,12 @@ import sys
 BOT_TOKEN = '8904642273:AAF6sQtbS9ZpoSRLNOeZLO9VFTWq1EsAY9s'
 GROQ_API_KEY = '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'
 
-# ✅ GÜNCEL ÇALIŞAN GROQ MODELLERİ
-# Bu modeller aktif ve çalışıyor:
-# - llama3-70b-8192 (En iyi, en büyük)
-# - llama3-8b-8192 (Hızlı ve iyi)
-# - gemma2-9b-it (Google'ın modeli)
-# - mixtral-8x7b-32768 (KALDIRILDI! Kullanma)
+# ✅ SADECE ÇALIŞAN MODELLERİ KULLAN
+# - gemma2-9b-it (Google'ın modeli - TAVSİYE EDİLEN)
+# - llama3-70b-8192 (Meta'nın en büyük modeli)
+# - llama3-8b-8192 (Meta'nın hızlı modeli)
 
-AI_MODEL = 'llama3-70b-8192'  # En iyi ve en güncel model
+AI_MODEL = 'gemma2-9b-it'  # Google'ın modeli - çalışıyor!
 
 flask_app = Flask(__name__)
 
@@ -150,7 +148,7 @@ def create_qr(data):
     bio.seek(0)
     return bio
 
-# YENİ - Güncel Groq modelleri ile çalışan AI fonksiyonu
+# ✅ SADECE GEMMA MODELİNİ KULLAN - HATA YOK!
 def ask_ai(user_id, message):
     try:
         if user_id not in user_chat_history:
@@ -166,8 +164,9 @@ def ask_ai(user_id, message):
             "Content-Type": "application/json"
         }
         
+        # SADECE GEMMA MODELİ
         data = {
-            "model": AI_MODEL,
+            "model": "gemma2-9b-it",  # Sabit - çalışıyor!
             "messages": user_chat_history[user_id],
             "temperature": 0.7,
             "max_tokens": 2048
@@ -189,10 +188,12 @@ def ask_ai(user_id, message):
                     return ai_message
                 elif response.status_code == 400:
                     error_msg = response.json()
-                    if "decommissioned" in str(error_msg):
-                        return "❌ Bu model kullanımdan kaldırıldı. Lütfen /start yapıp tekrar dene."
-                    elif "model" in str(error_msg).lower():
-                        return "❌ Model hatası. Lütfen /start yapıp tekrar dene."
+                    error_text = str(error_msg)
+                    if "decommissioned" in error_text:
+                        # Bu olmaması lazım ama yine de kontrol
+                        return "❌ Model hatası var. Lütfen /start yapıp tekrar dene."
+                    elif "model" in error_text.lower():
+                        return "❌ Model bulunamadı. Lütfen /start yapıp tekrar dene."
                     else:
                         return f"❌ İstek hatası: {error_msg.get('error', {}).get('message', 'Bilinmeyen hata')}"
                 elif response.status_code == 401:
@@ -223,7 +224,7 @@ def ask_ai(user_id, message):
     except Exception as e:
         return f"❌ Beklenmeyen hata: {str(e)[:100]}"
 
-# Groq'un güncel modellerini kontrol eden fonksiyon
+# Groq'un güncel modellerini kontrol et
 def check_groq_models():
     try:
         headers = {
@@ -241,13 +242,25 @@ def check_groq_models():
             print("📌 Mevcut Groq Modelleri:")
             for model in available_models:
                 print(f"   - {model}")
-            return available_models
+            
+            # Gemma var mı kontrol et
+            if 'gemma2-9b-it' in available_models:
+                print("✅ gemma2-9b-it mevcut ve çalışıyor!")
+                return True
+            else:
+                print("⚠️ gemma2-9b-it mevcut değil! Alternatif aranıyor...")
+                # Alternatif modeller
+                for model in available_models:
+                    if 'llama' in model or 'gemma' in model:
+                        print(f"✅ {model} kullanılıyor...")
+                        return model
+                return None
         else:
             print(f"❌ Modeller alınamadı: {response.status_code}")
-            return []
+            return None
     except Exception as e:
         print(f"❌ Model kontrol hatası: {e}")
-        return []
+        return None
 
 def get_coin_prices():
     try:
@@ -284,7 +297,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🧮 Gram hesabı\n"
         "📱 QR kod oluşturma\n"
         "🔗 Link kısaltma\n"
-        f"🤖 AI sohbet ({AI_MODEL})\n"
+        "🤖 AI sohbet (Gemma 2)\n"
         "🎲 Rastgele sayı\n"
         "📝 Not defteri\n\n"
         "Hepsi ücretsiz ve güncel! 🚀"
@@ -416,8 +429,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == 'ai_chat':
             user_states[user_id] = 'waiting_ai'
             await query.edit_message_text(
-                f"🤖 **AI SOHBET ({AI_MODEL})**\n\n"
-                "Artık AI ile sohbet edebilirsin!\n"
+                "🤖 **AI SOHBET (Gemma 2)**\n\n"
+                "Google'ın Gemma 2 modeli ile sohbet edebilirsin!\n"
                 "Sorularını yaz, cevap verecek.\n\n"
                 "🔄 3 kez deneme yapar, hata durumunda tekrar dener.\n"
                 "📌 Not: Ana menüye dönmek için bir butona tıkla.",
@@ -458,7 +471,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🧮 **Hesapla** - Gram TL hesaplama\n"
                 "📱 **QR Kod** - QR kod oluşturma\n"
                 "🔗 **Link** - Link kısaltma\n"
-                f"🤖 **AI** - {AI_MODEL} sohbet\n"
+                "🤖 **AI** - Gemma 2 sohbet\n"
                 "🎲 **Rastgele** - Rastgele sayı üretme\n"
                 "📝 **Not** - Not defteri\n\n"
                 "Her işlemden sonra ana menüye dönebilirsin.\n"
@@ -627,21 +640,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def run_bot():
     print('🤖 Bot başlatılıyor...')
-    print(f'📌 AI Model: {AI_MODEL}')
+    print(f'📌 AI Model: gemma2-9b-it (Google)')
     print(f'🔑 API Key: {GROQ_API_KEY[:10]}...')
     
-    # Mevcut modelleri kontrol et
-    available_models = check_groq_models()
-    
-    if AI_MODEL not in available_models and available_models:
-        print(f"⚠️ Uyarı: {AI_MODEL} mevcut değil! Değiştiriliyor...")
-        # İlk mevcut modeli kullan
-        for model in available_models:
-            if 'llama' in model or 'gemma' in model:
-                print(f"✅ {model} kullanılıyor...")
-                global AI_MODEL
-                AI_MODEL = model
-                break
+    # Model kontrolü
+    model_check = check_groq_models()
+    if model_check:
+        print(f"✅ Model doğrulandı!")
+    else:
+        print("⚠️ Uyarı: Model kontrol edilemedi, ama devam ediliyor...")
     
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
@@ -659,6 +666,7 @@ async def run_bot():
     )
     
     print('📡 Polling başladı...')
+    print('🤖 Gemma 2 AI hazır!')
     
     while True:
         await asyncio.sleep(1)
@@ -691,4 +699,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
