@@ -7,7 +7,7 @@ from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from datetime import datetime
+from datetime import datetime, timedelta
 import random
 import time
 import os
@@ -15,14 +15,6 @@ import signal
 import sys
 
 BOT_TOKEN = '8904642273:AAF6sQtbS9ZpoSRLNOeZLO9VFTWq1EsAY9s'
-GROQ_API_KEY = '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'
-
-# ✅ SADECE ÇALIŞAN MODELLERİ KULLAN
-# - gemma2-9b-it (Google'ın modeli - TAVSİYE EDİLEN)
-# - llama3-70b-8192 (Meta'nın en büyük modeli)
-# - llama3-8b-8192 (Meta'nın hızlı modeli)
-
-AI_MODEL = 'gemma2-9b-it'  # Google'ın modeli - çalışıyor!
 
 flask_app = Flask(__name__)
 
@@ -34,9 +26,12 @@ def run_flask():
     flask_app.run(host='0.0.0.0', port=8080)
 
 user_states = {}
-user_chat_history = {}
 
-# Ana menü
+# Coin sistemi veritabanı (gerçek uygulamada JSON veya veritabanı kullan)
+user_coins = {}  # {user_id: {'balance': 0, 'last_daily': None, 'multiplier': 1, 'multiplier_end': None}}
+user_games = {}  # {user_id: {'slot_bet': 0, 'in_game': False}}
+
+# Ana menü - COIN butonu eklendi
 MAIN_KEYBOARD = [
     [InlineKeyboardButton("💰 Altin Gram (TL)", callback_data='gold')],
     [InlineKeyboardButton("🥈 Gumus Gram (TL)", callback_data='silver')],
@@ -45,10 +40,32 @@ MAIN_KEYBOARD = [
     [InlineKeyboardButton("🧮 Gram -> TL Hesapla", callback_data='calc')],
     [InlineKeyboardButton("📱 QR Kod Olustur", callback_data='qr')],
     [InlineKeyboardButton("🔗 Link Kisalt", callback_data='shorten')],
-    [InlineKeyboardButton("🤖 AI Sohbet", callback_data='ai_chat')],
+    [InlineKeyboardButton("🎰 KAcoin Sistemi", callback_data='kacoin_menu')],
     [InlineKeyboardButton("🎲 Rastgele Sayi", callback_data='random')],
     [InlineKeyboardButton("📝 Not Defteri", callback_data='note')],
     [InlineKeyboardButton("ℹ️ Yardim", callback_data='help')]
+]
+
+# KAcoin menüsü
+KACOIN_KEYBOARD = [
+    [InlineKeyboardButton("💰 Bakiye Gor", callback_data='kacoin_balance')],
+    [InlineKeyboardButton("🎁 Gunluk Odul", callback_data='kacoin_daily')],
+    [InlineKeyboardButton("🎡 Cark Ce vir", callback_data='kacoin_spin')],
+    [InlineKeyboardButton("🎰 Slot Oyna", callback_data='kacoin_slot')],
+    [InlineKeyboardButton("⬅️ Ana Menü", callback_data='main_menu')]
+]
+
+# Çark ödülleri
+SPIN_REWARDS = [
+    {'name': '2x Hizlandirici', 'multiplier': 2, 'duration': 3600},  # 1 saat
+    {'name': '4x Hizlandirici', 'multiplier': 4, 'duration': 1800},  # 30 dk
+    {'name': '8x Hizlandirici', 'multiplier': 8, 'duration': 900},   # 15 dk
+    {'name': '50 KAcoin', 'coins': 50},
+    {'name': '100 KAcoin', 'coins': 100},
+    {'name': '200 KAcoin', 'coins': 200},
+    {'name': '500 KAcoin', 'coins': 500},
+    {'name': '1000 KAcoin', 'coins': 1000},
+    {'name': 'Bos', 'coins': 0},
 ]
 
 def get_prices():
@@ -148,120 +165,6 @@ def create_qr(data):
     bio.seek(0)
     return bio
 
-# ✅ SADECE GEMMA MODELİNİ KULLAN - HATA YOK!
-def ask_ai(user_id, message):
-    try:
-        if user_id not in user_chat_history:
-            user_chat_history[user_id] = []
-        
-        user_chat_history[user_id].append({"role": "user", "content": message})
-        
-        if len(user_chat_history[user_id]) > 10:
-            user_chat_history[user_id] = user_chat_history[user_id][-10:]
-        
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        # SADECE GEMMA MODELİ
-        data = {
-            "model": "gemma2-9b-it",  # Sabit - çalışıyor!
-            "messages": user_chat_history[user_id],
-            "temperature": 0.7,
-            "max_tokens": 2048
-        }
-        
-        for attempt in range(3):
-            try:
-                response = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers=headers,
-                    json=data,
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    ai_message = result['choices'][0]['message']['content']
-                    user_chat_history[user_id].append({"role": "assistant", "content": ai_message})
-                    return ai_message
-                elif response.status_code == 400:
-                    error_msg = response.json()
-                    error_text = str(error_msg)
-                    if "decommissioned" in error_text:
-                        # Bu olmaması lazım ama yine de kontrol
-                        return "❌ Model hatası var. Lütfen /start yapıp tekrar dene."
-                    elif "model" in error_text.lower():
-                        return "❌ Model bulunamadı. Lütfen /start yapıp tekrar dene."
-                    else:
-                        return f"❌ İstek hatası: {error_msg.get('error', {}).get('message', 'Bilinmeyen hata')}"
-                elif response.status_code == 401:
-                    return "❌ API Key geçersiz! Lütfen Groq API key'ini kontrol et."
-                elif response.status_code == 429:
-                    if attempt < 2:
-                        time.sleep(2)
-                        continue
-                    return "❌ Çok fazla istek gönderildi. Lütfen biraz bekle."
-                else:
-                    if attempt < 2:
-                        time.sleep(1)
-                        continue
-                    return f"❌ AI hatası: {response.status_code}"
-            except requests.exceptions.Timeout:
-                if attempt < 2:
-                    time.sleep(1)
-                    continue
-                return "❌ Zaman aşımı. Lütfen tekrar dene."
-            except Exception as e:
-                if attempt < 2:
-                    time.sleep(1)
-                    continue
-                return f"❌ Bağlantı hatası: {str(e)[:100]}"
-        
-        return "❌ Üzgünüm, AI şu anda cevap veremiyor. Lütfen biraz sonra tekrar dene."
-        
-    except Exception as e:
-        return f"❌ Beklenmeyen hata: {str(e)[:100]}"
-
-# Groq'un güncel modellerini kontrol et
-def check_groq_models():
-    try:
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        response = requests.get(
-            "https://api.groq.com/openai/v1/models",
-            headers=headers,
-            timeout=10
-        )
-        if response.status_code == 200:
-            models = response.json()
-            available_models = [m['id'] for m in models.get('data', [])]
-            print("📌 Mevcut Groq Modelleri:")
-            for model in available_models:
-                print(f"   - {model}")
-            
-            # Gemma var mı kontrol et
-            if 'gemma2-9b-it' in available_models:
-                print("✅ gemma2-9b-it mevcut ve çalışıyor!")
-                return True
-            else:
-                print("⚠️ gemma2-9b-it mevcut değil! Alternatif aranıyor...")
-                # Alternatif modeller
-                for model in available_models:
-                    if 'llama' in model or 'gemma' in model:
-                        print(f"✅ {model} kullanılıyor...")
-                        return model
-                return None
-        else:
-            print(f"❌ Modeller alınamadı: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"❌ Model kontrol hatası: {e}")
-        return None
-
 def get_coin_prices():
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin%2Cethereum%2Ctether%2Cbinancecoin%2Cripple%2Ccardano%2Csolana%2Cdogecoin%2Cpolkadot%2Clitecoin%2Cchainlink%2Cpolygon&vs_currencies=usd%2Ctry"
@@ -271,7 +174,6 @@ def get_coin_prices():
         if response.status_code == 200:
             return data
         else:
-            print("CoinGecko API hatası:", response.status_code)
             return None
     except Exception as e:
         print("Kripto fiyat hatası:", e)
@@ -280,12 +182,151 @@ def get_coin_prices():
 def get_random_number(min_val=1, max_val=100):
     return random.randint(min_val, max_val)
 
-user_notes = {}
+# ==================== KAcoin SİSTEMİ ====================
+
+def init_user(user_id):
+    if user_id not in user_coins:
+        user_coins[user_id] = {
+            'balance': 100,  # Başlangıç bonusu
+            'last_daily': None,
+            'multiplier': 1,
+            'multiplier_end': None,
+            'total_earned': 0,
+            'total_spent': 0
+        }
+
+def get_user_balance(user_id):
+    init_user(user_id)
+    return user_coins[user_id]['balance']
+
+def get_user_multiplier(user_id):
+    init_user(user_id)
+    user = user_coins[user_id]
+    if user['multiplier_end'] and datetime.now() < user['multiplier_end']:
+        return user['multiplier']
+    return 1
+
+def get_multiplier_text(user_id):
+    user = user_coins[user_id]
+    if user['multiplier_end'] and datetime.now() < user['multiplier_end']:
+        remaining = (user['multiplier_end'] - datetime.now()).seconds
+        minutes = remaining // 60
+        seconds = remaining % 60
+        return f"{user['multiplier']}x ({minutes}dak {seconds}sn)"
+    return "1x (Aktif değil)"
+
+# Günlük ödül
+def claim_daily(user_id):
+    init_user(user_id)
+    user = user_coins[user_id]
+    today = datetime.now().date()
+    
+    if user['last_daily'] and user['last_daily'] == today:
+        return None, "Bugün zaten günlük ödülünü aldın! Yarın tekrar dene."
+    
+    # Rastgele ödül (100-500 arası)
+    reward = random.randint(100, 500)
+    user['balance'] += reward
+    user['total_earned'] += reward
+    user['last_daily'] = today
+    
+    # Bonus: 10% şansla ekstra ödül
+    if random.random() < 0.1:
+        bonus = random.randint(50, 200)
+        user['balance'] += bonus
+        user['total_earned'] += bonus
+        return reward + bonus, f"🎉 {reward} KAcoin + {bonus} KAcoin bonus! Toplam: {reward + bonus} KAcoin"
+    
+    return reward, f"🎁 {reward} KAcoin kazandın!"
+
+# Çark çevir
+def spin_wheel(user_id):
+    init_user(user_id)
+    user = user_coins[user_id]
+    
+    # Rastgele ödül seç
+    reward = random.choice(SPIN_REWARDS)
+    
+    result_text = ""
+    
+    if 'multiplier' in reward:
+        # Hızlandırıcı ödülü
+        user['multiplier'] = reward['multiplier']
+        user['multiplier_end'] = datetime.now() + timedelta(seconds=reward['duration'])
+        result_text = f"🎡 {reward['name']} kazandın! ({reward['multiplier']}x hız, {reward['duration']//60} dakika)"
+    
+    elif 'coins' in reward:
+        # Coin ödülü
+        if reward['coins'] > 0:
+            user['balance'] += reward['coins']
+            user['total_earned'] += reward['coins']
+            result_text = f"🎡 {reward['coins']} KAcoin kazandın!"
+        else:
+            result_text = f"🎡 Maalesef boş çıktı! Tekrar dene."
+    
+    return result_text
+
+# Slot oyna
+def play_slot(user_id, bet):
+    init_user(user_id)
+    user = user_coins[user_id]
+    
+    if bet > user['balance']:
+        return None, "❌ Yeterli bakiyen yok!"
+    
+    if bet < 10:
+        return None, "❌ Minimum bahis 10 KAcoin!"
+    
+    # Bahsi düş
+    user['balance'] -= bet
+    user['total_spent'] += bet
+    
+    # Slot sembolleri
+    symbols = ['🍒', '🍋', '🍊', '🍇', '💎', '7️⃣', '⭐', '🎰']
+    
+    # Rastgele 3 sembol
+    result = [random.choice(symbols) for _ in range(3)]
+    
+    # Kazanç hesapla
+    win = 0
+    multiplier = get_user_multiplier(user_id)
+    
+    # 3 aynı
+    if result[0] == result[1] == result[2]:
+        if result[0] == '7️⃣':
+            win = bet * 10 * multiplier
+        elif result[0] == '💎':
+            win = bet * 8 * multiplier
+        elif result[0] == '🎰':
+            win = bet * 6 * multiplier
+        elif result[0] == '⭐':
+            win = bet * 5 * multiplier
+        else:
+            win = bet * 3 * multiplier
+    
+    # 2 aynı
+    elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
+        win = bet * 1.5 * multiplier
+    
+    # Özel kombinasyon
+    if '7️⃣' in result and '💎' in result and '🎰' in result:
+        win = bet * 15 * multiplier
+    
+    if win > 0:
+        user['balance'] += win
+        user['total_earned'] += win
+        return result, f"🎰 {''.join(result)}\n\n✅ Kazandın: {int(win)} KAcoin! (x{multiplier})"
+    else:
+        return result, f"🎰 {''.join(result)}\n\n❌ Kaybettin! Tekrar dene."
+
+# ==================== BOT KOMUTLARI ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id in user_states:
         del user_states[user_id]
+    
+    init_user(user_id)
     
     reply_markup = InlineKeyboardMarkup(MAIN_KEYBOARD)
     welcome_text = (
@@ -297,9 +338,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🧮 Gram hesabı\n"
         "📱 QR kod oluşturma\n"
         "🔗 Link kısaltma\n"
-        "🤖 AI sohbet (Gemma 2)\n"
+        "🎰 **KAcoin Sistemi** - Coin kazan, slot oyna!\n"
         "🎲 Rastgele sayı\n"
         "📝 Not defteri\n\n"
+        f"🎯 Bakiyen: {get_user_balance(user_id)} KAcoin\n"
+        f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}\n\n"
         "Hepsi ücretsiz ve güncel! 🚀"
     )
     await update.message.reply_text(
@@ -318,7 +361,87 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del user_states[user_id]
     
     try:
-        if data == 'gold':
+        if data == 'main_menu':
+            reply_markup = InlineKeyboardMarkup(MAIN_KEYBOARD)
+            await query.edit_message_text(
+                "🏠 **Ana Menü**\n\nBir buton seç:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        
+        elif data == 'kacoin_menu':
+            init_user(user_id)
+            reply_markup = InlineKeyboardMarkup(KACOIN_KEYBOARD)
+            await query.edit_message_text(
+                f"🎰 **KAcoin Sistemi**\n\n"
+                f"💰 Bakiye: {get_user_balance(user_id)} KAcoin\n"
+                f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}\n\n"
+                "Ne yapmak istersin?",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        
+        elif data == 'kacoin_balance':
+            init_user(user_id)
+            user = user_coins[user_id]
+            reply_markup = InlineKeyboardMarkup(KACOIN_KEYBOARD)
+            await query.edit_message_text(
+                f"💰 **Bakiyen**\n\n"
+                f"💵 Mevcut: {user['balance']} KAcoin\n"
+                f"📈 Toplam Kazanç: {user['total_earned']} KAcoin\n"
+                f"📉 Toplam Harcama: {user['total_spent']} KAcoin\n"
+                f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}\n\n"
+                f"📅 Son günlük: {user['last_daily'] if user['last_daily'] else 'Hiç alınmamış'}",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        
+        elif data == 'kacoin_daily':
+            init_user(user_id)
+            reward, message = claim_daily(user_id)
+            if reward is None:
+                await query.edit_message_text(
+                    f"❌ {message}\n\n"
+                    f"💰 Bakiyen: {get_user_balance(user_id)} KAcoin",
+                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                    parse_mode='Markdown'
+                )
+            else:
+                await query.edit_message_text(
+                    f"✅ {message}\n\n"
+                    f"💰 Yeni bakiye: {get_user_balance(user_id)} KAcoin",
+                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                    parse_mode='Markdown'
+                )
+        
+        elif data == 'kacoin_spin':
+            init_user(user_id)
+            result = spin_wheel(user_id)
+            await query.edit_message_text(
+                f"{result}\n\n"
+                f"💰 Yeni bakiye: {get_user_balance(user_id)} KAcoin\n"
+                f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}",
+                reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                parse_mode='Markdown'
+            )
+        
+        elif data == 'kacoin_slot':
+            init_user(user_id)
+            user_states[user_id] = 'waiting_slot_bet'
+            await query.edit_message_text(
+                f"🎰 **SLOT OYNA**\n\n"
+                f"💰 Bakiyen: {get_user_balance(user_id)} KAcoin\n"
+                f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}\n\n"
+                "Ne kadar bahis oynamak istersin?\n"
+                "Minimum: 10 KAcoin\n"
+                "Maksimum: Bakiyen\n\n"
+                "**Bahis miktarını yaz:**",
+                reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                parse_mode='Markdown'
+            )
+        
+        # Diğer menüler...
+        elif data == 'gold':
             prices = get_prices()
             if prices:
                 msg = "🥇 **ALTIN GRAM FIYATI**\n\n"
@@ -426,18 +549,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
         
-        elif data == 'ai_chat':
-            user_states[user_id] = 'waiting_ai'
-            await query.edit_message_text(
-                "🤖 **AI SOHBET (Gemma 2)**\n\n"
-                "Google'ın Gemma 2 modeli ile sohbet edebilirsin!\n"
-                "Sorularını yaz, cevap verecek.\n\n"
-                "🔄 3 kez deneme yapar, hata durumunda tekrar dener.\n"
-                "📌 Not: Ana menüye dönmek için bir butona tıkla.",
-                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
-                parse_mode='Markdown'
-            )
-        
         elif data == 'random':
             user_states[user_id] = 'waiting_random'
             await query.edit_message_text(
@@ -471,7 +582,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🧮 **Hesapla** - Gram TL hesaplama\n"
                 "📱 **QR Kod** - QR kod oluşturma\n"
                 "🔗 **Link** - Link kısaltma\n"
-                "🤖 **AI** - Gemma 2 sohbet\n"
+                "🎰 **KAcoin** - Coin kazan, slot oyna!\n"
+                "   - Günlük ödül al\n"
+                "   - Çark çevir (2x, 4x, 8x hızlandırıcı)\n"
+                "   - Slot oyna (x3, x5, x10 kazanç)\n"
                 "🎲 **Rastgele** - Rastgele sayı üretme\n"
                 "📝 **Not** - Not defteri\n\n"
                 "Her işlemden sonra ana menüye dönebilirsin.\n"
@@ -499,7 +613,49 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     state = user_states[user_id]
     
-    if state == 'waiting_calc':
+    if state == 'waiting_slot_bet':
+        try:
+            bet = int(text)
+            init_user(user_id)
+            if bet < 10:
+                await update.message.reply_text(
+                    "❌ Minimum bahis 10 KAcoin!",
+                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                    parse_mode='Markdown'
+                )
+                return
+            if bet > user_coins[user_id]['balance']:
+                await update.message.reply_text(
+                    f"❌ Yeterli bakiyen yok! Bakiyen: {user_coins[user_id]['balance']} KAcoin",
+                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                    parse_mode='Markdown'
+                )
+                return
+            
+            result, message = play_slot(user_id, bet)
+            if result is None:
+                await update.message.reply_text(
+                    f"❌ {message}",
+                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text(
+                    f"{message}\n\n"
+                    f"💰 Yeni bakiye: {user_coins[user_id]['balance']} KAcoin\n"
+                    f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}",
+                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                    parse_mode='Markdown'
+                )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Geçersiz sayı! Lütfen bir sayı gir.",
+                reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                parse_mode='Markdown'
+            )
+        del user_states[user_id]
+    
+    elif state == 'waiting_calc':
         try:
             gram = float(text.replace(',', '.'))
             prices = get_prices()
@@ -555,25 +711,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         del user_states[user_id]
-    
-    elif state == 'waiting_ai':
-        wait_msg = await update.message.reply_text(
-            "🤖 AI düşünüyor... (en fazla 30 saniye)",
-            reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
-        )
-        
-        response = ask_ai(user_id, text)
-        
-        if len(response) > 4000:
-            response = response[:4000] + "\n\n[Devamı kesildi...]"
-        
-        await wait_msg.delete()
-        
-        await update.message.reply_text(
-            f"🤖 **AI Cevabı:**\n\n{response}",
-            reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
-            parse_mode='Markdown'
-        )
     
     elif state == 'waiting_random':
         try:
@@ -638,17 +775,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         del user_states[user_id]
 
+user_notes = {}
+
 async def run_bot():
     print('🤖 Bot başlatılıyor...')
-    print(f'📌 AI Model: gemma2-9b-it (Google)')
-    print(f'🔑 API Key: {GROQ_API_KEY[:10]}...')
-    
-    # Model kontrolü
-    model_check = check_groq_models()
-    if model_check:
-        print(f"✅ Model doğrulandı!")
-    else:
-        print("⚠️ Uyarı: Model kontrol edilemedi, ama devam ediliyor...")
+    print('🎰 KAcoin Sistemi aktif!')
+    print('💰 Başlangıç bonusu: 100 KAcoin')
     
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
@@ -666,7 +798,7 @@ async def run_bot():
     )
     
     print('📡 Polling başladı...')
-    print('🤖 Gemma 2 AI hazır!')
+    print('🎰 KAcoin sistemi hazır!')
     
     while True:
         await asyncio.sleep(1)
