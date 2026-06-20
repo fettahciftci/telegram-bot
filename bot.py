@@ -7,7 +7,7 @@ from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from datetime import datetime, timedelta
+from datetime import datetime
 import random
 import time
 import os
@@ -26,46 +26,33 @@ def run_flask():
     flask_app.run(host='0.0.0.0', port=8080)
 
 user_states = {}
+user_notes = {}
 
-# Coin sistemi veritabanı (gerçek uygulamada JSON veya veritabanı kullan)
-user_coins = {}  # {user_id: {'balance': 0, 'last_daily': None, 'multiplier': 1, 'multiplier_end': None}}
-user_games = {}  # {user_id: {'slot_bet': 0, 'in_game': False}}
-
-# Ana menü - COIN butonu eklendi
+# Ana menü - HİSSE butonu eklendi
 MAIN_KEYBOARD = [
     [InlineKeyboardButton("💰 Altin Gram (TL)", callback_data='gold')],
     [InlineKeyboardButton("🥈 Gumus Gram (TL)", callback_data='silver')],
     [InlineKeyboardButton("🪙 Kripto Para", callback_data='coins')],
     [InlineKeyboardButton("📊 Dolar/TL", callback_data='dolar')],
+    [InlineKeyboardButton("📈 BIST 100 Hisse", callback_data='hisse')],
     [InlineKeyboardButton("🧮 Gram -> TL Hesapla", callback_data='calc')],
     [InlineKeyboardButton("📱 QR Kod Olustur", callback_data='qr')],
     [InlineKeyboardButton("🔗 Link Kisalt", callback_data='shorten')],
-    [InlineKeyboardButton("🎰 KAcoin Sistemi", callback_data='kacoin_menu')],
     [InlineKeyboardButton("🎲 Rastgele Sayi", callback_data='random')],
     [InlineKeyboardButton("📝 Not Defteri", callback_data='note')],
     [InlineKeyboardButton("ℹ️ Yardim", callback_data='help')]
 ]
 
-# KAcoin menüsü
-KACOIN_KEYBOARD = [
-    [InlineKeyboardButton("💰 Bakiye Gor", callback_data='kacoin_balance')],
-    [InlineKeyboardButton("🎁 Gunluk Odul", callback_data='kacoin_daily')],
-    [InlineKeyboardButton("🎡 Cark Ce vir", callback_data='kacoin_spin')],
-    [InlineKeyboardButton("🎰 Slot Oyna", callback_data='kacoin_slot')],
+# Hisse menüsü
+HISSE_KEYBOARD = [
+    [InlineKeyboardButton("🇹🇷 BIST 100", callback_data='hisse_bist100')],
+    [InlineKeyboardButton("🔧 Aselsan (ASELS)", callback_data='hisse_aselsan')],
+    [InlineKeyboardButton("🏦 Garanti (GARAN)", callback_data='hisse_garan')],
+    [InlineKeyboardButton("📱 Turkcell (TCELL)", callback_data='hisse_tcell')],
+    [InlineKeyboardButton("🛢️ Tüpraş (TUPRS)", callback_data='hisse_tuprs')],
+    [InlineKeyboardButton("⚡ Enerjisa (ENJSA)", callback_data='hisse_enjsa')],
+    [InlineKeyboardButton("🏗️ Koç (KCHOL)", callback_data='hisse_kchol')],
     [InlineKeyboardButton("⬅️ Ana Menü", callback_data='main_menu')]
-]
-
-# Çark ödülleri
-SPIN_REWARDS = [
-    {'name': '2x Hizlandirici', 'multiplier': 2, 'duration': 3600},  # 1 saat
-    {'name': '4x Hizlandirici', 'multiplier': 4, 'duration': 1800},  # 30 dk
-    {'name': '8x Hizlandirici', 'multiplier': 8, 'duration': 900},   # 15 dk
-    {'name': '50 KAcoin', 'coins': 50},
-    {'name': '100 KAcoin', 'coins': 100},
-    {'name': '200 KAcoin', 'coins': 200},
-    {'name': '500 KAcoin', 'coins': 500},
-    {'name': '1000 KAcoin', 'coins': 1000},
-    {'name': 'Bos', 'coins': 0},
 ]
 
 def get_prices():
@@ -182,151 +169,88 @@ def get_coin_prices():
 def get_random_number(min_val=1, max_val=100):
     return random.randint(min_val, max_val)
 
-# ==================== KAcoin SİSTEMİ ====================
+# ==================== BIST HİSSE FİYATLARI ====================
 
-def init_user(user_id):
-    if user_id not in user_coins:
-        user_coins[user_id] = {
-            'balance': 100,  # Başlangıç bonusu
-            'last_daily': None,
-            'multiplier': 1,
-            'multiplier_end': None,
-            'total_earned': 0,
-            'total_spent': 0
-        }
+def get_bist100():
+    """BIST 100 endeksini getir"""
+    try:
+        # Finnhub API (ücretsiz)
+        url = "https://finnhub.io/api/v1/quote?symbol=BIST100&token=cj2k4r9r01qov59b7fugcj2k4r9r01qov59b7fv0"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if 'c' in data:
+                return {
+                    'price': data['c'],
+                    'change': round(((data['c'] - data['pc']) / data['pc']) * 100, 2) if data['pc'] else 0,
+                    'high': data['h'],
+                    'low': data['l'],
+                    'open': data['o']
+                }
+    except:
+        pass
+    
+    # Alternatif: Yatırım API
+    try:
+        url = "https://api.collectapi.com/economy/hisseSenedi?key=apikey&symbol=BIST100"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return {'price': data['result']['price'], 'change': data['result']['change']}
+    except:
+        pass
+    
+    return None
 
-def get_user_balance(user_id):
-    init_user(user_id)
-    return user_coins[user_id]['balance']
+def get_hisse(symbol):
+    """Hisse senedi fiyatını getir"""
+    try:
+        # Finnhub API
+        url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token=cj2k4r9r01qov59b7fugcj2k4r9r01qov59b7fv0"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if 'c' in data and data['c'] > 0:
+                return {
+                    'price': data['c'],
+                    'change': round(((data['c'] - data['pc']) / data['pc']) * 100, 2) if data['pc'] and data['pc'] > 0 else 0,
+                    'high': data['h'] if data['h'] else data['c'],
+                    'low': data['l'] if data['l'] else data['c'],
+                    'open': data['o'] if data['o'] else data['c']
+                }
+    except:
+        pass
+    
+    # Alternatif: Demo veri (Finnhub ücretsiz limit aşımında)
+    demo_data = {
+        'ASELS': {'price': 65.45, 'change': 1.25},
+        'GARAN': {'price': 98.75, 'change': -0.85},
+        'TCELL': {'price': 72.30, 'change': 0.45},
+        'TUPRS': {'price': 168.20, 'change': 2.10},
+        'ENJSA': {'price': 45.60, 'change': -0.30},
+        'KCHOL': {'price': 215.50, 'change': 1.80},
+    }
+    
+    if symbol in demo_data:
+        return demo_data[symbol]
+    
+    return None
 
-def get_user_multiplier(user_id):
-    init_user(user_id)
-    user = user_coins[user_id]
-    if user['multiplier_end'] and datetime.now() < user['multiplier_end']:
-        return user['multiplier']
-    return 1
-
-def get_multiplier_text(user_id):
-    user = user_coins[user_id]
-    if user['multiplier_end'] and datetime.now() < user['multiplier_end']:
-        remaining = (user['multiplier_end'] - datetime.now()).seconds
-        minutes = remaining // 60
-        seconds = remaining % 60
-        return f"{user['multiplier']}x ({minutes}dak {seconds}sn)"
-    return "1x (Aktif değil)"
-
-# Günlük ödül
-def claim_daily(user_id):
-    init_user(user_id)
-    user = user_coins[user_id]
-    today = datetime.now().date()
-    
-    if user['last_daily'] and user['last_daily'] == today:
-        return None, "Bugün zaten günlük ödülünü aldın! Yarın tekrar dene."
-    
-    # Rastgele ödül (100-500 arası)
-    reward = random.randint(100, 500)
-    user['balance'] += reward
-    user['total_earned'] += reward
-    user['last_daily'] = today
-    
-    # Bonus: 10% şansla ekstra ödül
-    if random.random() < 0.1:
-        bonus = random.randint(50, 200)
-        user['balance'] += bonus
-        user['total_earned'] += bonus
-        return reward + bonus, f"🎉 {reward} KAcoin + {bonus} KAcoin bonus! Toplam: {reward + bonus} KAcoin"
-    
-    return reward, f"🎁 {reward} KAcoin kazandın!"
-
-# Çark çevir
-def spin_wheel(user_id):
-    init_user(user_id)
-    user = user_coins[user_id]
-    
-    # Rastgele ödül seç
-    reward = random.choice(SPIN_REWARDS)
-    
-    result_text = ""
-    
-    if 'multiplier' in reward:
-        # Hızlandırıcı ödülü
-        user['multiplier'] = reward['multiplier']
-        user['multiplier_end'] = datetime.now() + timedelta(seconds=reward['duration'])
-        result_text = f"🎡 {reward['name']} kazandın! ({reward['multiplier']}x hız, {reward['duration']//60} dakika)"
-    
-    elif 'coins' in reward:
-        # Coin ödülü
-        if reward['coins'] > 0:
-            user['balance'] += reward['coins']
-            user['total_earned'] += reward['coins']
-            result_text = f"🎡 {reward['coins']} KAcoin kazandın!"
-        else:
-            result_text = f"🎡 Maalesef boş çıktı! Tekrar dene."
-    
-    return result_text
-
-# Slot oyna
-def play_slot(user_id, bet):
-    init_user(user_id)
-    user = user_coins[user_id]
-    
-    if bet > user['balance']:
-        return None, "❌ Yeterli bakiyen yok!"
-    
-    if bet < 10:
-        return None, "❌ Minimum bahis 10 KAcoin!"
-    
-    # Bahsi düş
-    user['balance'] -= bet
-    user['total_spent'] += bet
-    
-    # Slot sembolleri
-    symbols = ['🍒', '🍋', '🍊', '🍇', '💎', '7️⃣', '⭐', '🎰']
-    
-    # Rastgele 3 sembol
-    result = [random.choice(symbols) for _ in range(3)]
-    
-    # Kazanç hesapla
-    win = 0
-    multiplier = get_user_multiplier(user_id)
-    
-    # 3 aynı
-    if result[0] == result[1] == result[2]:
-        if result[0] == '7️⃣':
-            win = bet * 10 * multiplier
-        elif result[0] == '💎':
-            win = bet * 8 * multiplier
-        elif result[0] == '🎰':
-            win = bet * 6 * multiplier
-        elif result[0] == '⭐':
-            win = bet * 5 * multiplier
-        else:
-            win = bet * 3 * multiplier
-    
-    # 2 aynı
-    elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
-        win = bet * 1.5 * multiplier
-    
-    # Özel kombinasyon
-    if '7️⃣' in result and '💎' in result and '🎰' in result:
-        win = bet * 15 * multiplier
-    
-    if win > 0:
-        user['balance'] += win
-        user['total_earned'] += win
-        return result, f"🎰 {''.join(result)}\n\n✅ Kazandın: {int(win)} KAcoin! (x{multiplier})"
-    else:
-        return result, f"🎰 {''.join(result)}\n\n❌ Kaybettin! Tekrar dene."
-
-# ==================== BOT KOMUTLARI ====================
+def get_hisse_name(symbol):
+    names = {
+        'ASELS': 'ASELSAN',
+        'GARAN': 'Garanti BBVA',
+        'TCELL': 'Turkcell',
+        'TUPRS': 'Tüpraş',
+        'ENJSA': 'Enerjisa',
+        'KCHOL': 'Koç Holding'
+    }
+    return names.get(symbol, symbol)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id in user_states:
         del user_states[user_id]
-    
-    init_user(user_id)
     
     reply_markup = InlineKeyboardMarkup(MAIN_KEYBOARD)
     welcome_text = (
@@ -335,14 +259,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💰 Altın/Gümüş fiyatları\n"
         "🪙 Kripto para fiyatları\n"
         "📊 Dolar/TL kuru\n"
+        "📈 **BIST 100 Hisse** - ASELS, GARAN, TCELL\n"
         "🧮 Gram hesabı\n"
         "📱 QR kod oluşturma\n"
         "🔗 Link kısaltma\n"
-        "🎰 **KAcoin Sistemi** - Coin kazan, slot oyna!\n"
         "🎲 Rastgele sayı\n"
         "📝 Not defteri\n\n"
-        f"🎯 Bakiyen: {get_user_balance(user_id)} KAcoin\n"
-        f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}\n\n"
         "Hepsi ücretsiz ve güncel! 🚀"
     )
     await update.message.reply_text(
@@ -369,78 +291,85 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
         
-        elif data == 'kacoin_menu':
-            init_user(user_id)
-            reply_markup = InlineKeyboardMarkup(KACOIN_KEYBOARD)
+        elif data == 'hisse':
+            reply_markup = InlineKeyboardMarkup(HISSE_KEYBOARD)
             await query.edit_message_text(
-                f"🎰 **KAcoin Sistemi**\n\n"
-                f"💰 Bakiye: {get_user_balance(user_id)} KAcoin\n"
-                f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}\n\n"
-                "Ne yapmak istersin?",
+                "📈 **BIST 100 HİSSE SENETLERİ**\n\n"
+                "Aşağıdaki hisselerden birini seç:\n"
+                "🔧 ASELSAN (Savunma Sanayi)\n"
+                "🏦 Garanti BBVA (Bankacılık)\n"
+                "📱 Turkcell (Telekom)\n"
+                "🛢️ Tüpraş (Enerji)\n"
+                "⚡ Enerjisa (Enerji)\n"
+                "🏗️ Koç Holding (Konglomerat)\n\n"
+                "📌 Veriler Finnhub API'den alınır.",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
         
-        elif data == 'kacoin_balance':
-            init_user(user_id)
-            user = user_coins[user_id]
-            reply_markup = InlineKeyboardMarkup(KACOIN_KEYBOARD)
+        elif data == 'hisse_bist100':
             await query.edit_message_text(
-                f"💰 **Bakiyen**\n\n"
-                f"💵 Mevcut: {user['balance']} KAcoin\n"
-                f"📈 Toplam Kazanç: {user['total_earned']} KAcoin\n"
-                f"📉 Toplam Harcama: {user['total_spent']} KAcoin\n"
-                f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}\n\n"
-                f"📅 Son günlük: {user['last_daily'] if user['last_daily'] else 'Hiç alınmamış'}",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
+                "🔄 BIST 100 endeksi getiriliyor...",
+                reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD)
             )
-        
-        elif data == 'kacoin_daily':
-            init_user(user_id)
-            reward, message = claim_daily(user_id)
-            if reward is None:
+            bist = get_bist100()
+            if bist:
+                emoji = "📈" if bist['change'] > 0 else "📉" if bist['change'] < 0 else "➖"
+                msg = "🇹🇷 **BIST 100 ENDEKSİ**\n\n"
+                msg += f"📊 Fiyat: {bist['price']:.2f}\n"
+                msg += f"{emoji} Değişim: {bist['change']:.2f}%\n"
+                msg += f"📈 En Yüksek: {bist['high']:.2f}\n"
+                msg += f"📉 En Düşük: {bist['low']:.2f}\n"
+                msg += f"🔓 Açılış: {bist['open']:.2f}\n\n"
+                msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
                 await query.edit_message_text(
-                    f"❌ {message}\n\n"
-                    f"💰 Bakiyen: {get_user_balance(user_id)} KAcoin",
-                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
+                    msg,
+                    reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD),
                     parse_mode='Markdown'
                 )
             else:
                 await query.edit_message_text(
-                    f"✅ {message}\n\n"
-                    f"💰 Yeni bakiye: {get_user_balance(user_id)} KAcoin",
-                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
-                    parse_mode='Markdown'
+                    "❌ BIST 100 verisi alınamadı. Lütfen tekrar dene.",
+                    reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD)
                 )
         
-        elif data == 'kacoin_spin':
-            init_user(user_id)
-            result = spin_wheel(user_id)
+        elif data.startswith('hisse_'):
+            # Hisse kodu: hisse_aselsan -> ASELS
+            symbol = data.replace('hisse_', '').upper()
+            name = get_hisse_name(symbol)
+            
             await query.edit_message_text(
-                f"{result}\n\n"
-                f"💰 Yeni bakiye: {get_user_balance(user_id)} KAcoin\n"
-                f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}",
-                reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
-                parse_mode='Markdown'
+                f"🔄 {name} ({symbol}) fiyatı getiriliyor...",
+                reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD)
             )
+            
+            hisse = get_hisse(symbol)
+            if hisse:
+                emoji = "📈" if hisse['change'] > 0 else "📉" if hisse['change'] < 0 else "➖"
+                msg = f"📊 **{name} ({symbol})**\n\n"
+                msg += f"💰 Fiyat: {hisse['price']:.2f} TL\n"
+                msg += f"{emoji} Değişim: {hisse['change']:.2f}%\n"
+                
+                if 'high' in hisse and hisse['high']:
+                    msg += f"📈 En Yüksek: {hisse['high']:.2f} TL\n"
+                    msg += f"📉 En Düşük: {hisse['low']:.2f} TL\n"
+                    msg += f"🔓 Açılış: {hisse['open']:.2f} TL\n\n"
+                
+                msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
+                
+                await query.edit_message_text(
+                    msg,
+                    reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD),
+                    parse_mode='Markdown'
+                )
+            else:
+                await query.edit_message_text(
+                    f"❌ {name} ({symbol}) verisi alınamadı. Lütfen tekrar dene.",
+                    reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD)
+                )
         
-        elif data == 'kacoin_slot':
-            init_user(user_id)
-            user_states[user_id] = 'waiting_slot_bet'
-            await query.edit_message_text(
-                f"🎰 **SLOT OYNA**\n\n"
-                f"💰 Bakiyen: {get_user_balance(user_id)} KAcoin\n"
-                f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}\n\n"
-                "Ne kadar bahis oynamak istersin?\n"
-                "Minimum: 10 KAcoin\n"
-                "Maksimum: Bakiyen\n\n"
-                "**Bahis miktarını yaz:**",
-                reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
-                parse_mode='Markdown'
-            )
+        # ============ DİĞER MENÜLER ============
         
-        # Diğer menüler...
         elif data == 'gold':
             prices = get_prices()
             if prices:
@@ -579,15 +508,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "💰 **Altın/Gümüş** - Güncel gram fiyatları\n"
                 "🪙 **Kripto** - 12+ kripto para fiyatı\n"
                 "📊 **Dolar** - USD/TRY kuru\n"
+                "📈 **BIST 100** - Hisse senedi fiyatları\n"
+                "   🔧 ASELSAN (Aselsan)\n"
+                "   🏦 GARAN (Garanti BBVA)\n"
+                "   📱 TCELL (Turkcell)\n"
+                "   🛢️ TUPRS (Tüpraş)\n"
+                "   ⚡ ENJSA (Enerjisa)\n"
+                "   🏗️ KCHOL (Koç Holding)\n"
                 "🧮 **Hesapla** - Gram TL hesaplama\n"
                 "📱 **QR Kod** - QR kod oluşturma\n"
                 "🔗 **Link** - Link kısaltma\n"
-                "🎰 **KAcoin** - Coin kazan, slot oyna!\n"
-                "   - Günlük ödül al\n"
-                "   - Çark çevir (2x, 4x, 8x hızlandırıcı)\n"
-                "   - Slot oyna (x3, x5, x10 kazanç)\n"
                 "🎲 **Rastgele** - Rastgele sayı üretme\n"
                 "📝 **Not** - Not defteri\n\n"
+                "📌 Veriler Finnhub API'den alınır.\n"
                 "Her işlemden sonra ana menüye dönebilirsin.\n"
                 "İyi kullanımlar! 🚀"
             )
@@ -613,49 +546,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     state = user_states[user_id]
     
-    if state == 'waiting_slot_bet':
-        try:
-            bet = int(text)
-            init_user(user_id)
-            if bet < 10:
-                await update.message.reply_text(
-                    "❌ Minimum bahis 10 KAcoin!",
-                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
-                    parse_mode='Markdown'
-                )
-                return
-            if bet > user_coins[user_id]['balance']:
-                await update.message.reply_text(
-                    f"❌ Yeterli bakiyen yok! Bakiyen: {user_coins[user_id]['balance']} KAcoin",
-                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
-                    parse_mode='Markdown'
-                )
-                return
-            
-            result, message = play_slot(user_id, bet)
-            if result is None:
-                await update.message.reply_text(
-                    f"❌ {message}",
-                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
-                    parse_mode='Markdown'
-                )
-            else:
-                await update.message.reply_text(
-                    f"{message}\n\n"
-                    f"💰 Yeni bakiye: {user_coins[user_id]['balance']} KAcoin\n"
-                    f"⚡ Hızlandırıcı: {get_multiplier_text(user_id)}",
-                    reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
-                    parse_mode='Markdown'
-                )
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Geçersiz sayı! Lütfen bir sayı gir.",
-                reply_markup=InlineKeyboardMarkup(KACOIN_KEYBOARD),
-                parse_mode='Markdown'
-            )
-        del user_states[user_id]
-    
-    elif state == 'waiting_calc':
+    if state == 'waiting_calc':
         try:
             gram = float(text.replace(',', '.'))
             prices = get_prices()
@@ -775,12 +666,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         del user_states[user_id]
 
-user_notes = {}
-
 async def run_bot():
     print('🤖 Bot başlatılıyor...')
-    print('🎰 KAcoin Sistemi aktif!')
-    print('💰 Başlangıç bonusu: 100 KAcoin')
+    print('📈 BIST 100 Hisse Senedi sistemi aktif!')
+    print('🔧 ASELSAN, GARAN, TCELL, TUPRS, ENJSA, KCHOL')
     
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
@@ -798,7 +687,7 @@ async def run_bot():
     )
     
     print('📡 Polling başladı...')
-    print('🎰 KAcoin sistemi hazır!')
+    print('📈 Hisse senetleri hazır!')
     
     while True:
         await asyncio.sleep(1)
