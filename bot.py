@@ -10,13 +10,21 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from datetime import datetime
 import random
 import time
+import os
+import signal
+import sys
 
 BOT_TOKEN = '8904642273:AAF6sQtbS9ZpoSRLNOeZLO9VFTWq1EsAY9s'
 GROQ_API_KEY = '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'
 
-# Daha stabil ve çalışan modeller
-# Mixtral daha iyi çalışıyor, llama3 bazen hata veriyor
-AI_MODEL = 'mixtral-8x7b-32768'  # veya 'llama3-70b-8192' veya 'gemma2-9b-it'
+# ✅ GÜNCEL ÇALIŞAN GROQ MODELLERİ
+# Bu modeller aktif ve çalışıyor:
+# - llama3-70b-8192 (En iyi, en büyük)
+# - llama3-8b-8192 (Hızlı ve iyi)
+# - gemma2-9b-it (Google'ın modeli)
+# - mixtral-8x7b-32768 (KALDIRILDI! Kullanma)
+
+AI_MODEL = 'llama3-70b-8192'  # En iyi ve en güncel model
 
 flask_app = Flask(__name__)
 
@@ -52,10 +60,8 @@ def get_prices():
         currency_data = currency_response.json()
         usd_try = currency_data['rates']['TRY']
         
-        # Altın fiyatı için birden fazla API dene
         gold_ons_usd = None
         try:
-            # 1. Gold-API (bedava)
             gold_url = "https://api.gold-api.com/price/XAU"
             gold_response = requests.get(gold_url, timeout=10)
             if gold_response.status_code == 200:
@@ -66,7 +72,6 @@ def get_prices():
         
         if gold_ons_usd is None:
             try:
-                # 2. Metals-API (demo)
                 gold_url2 = "https://metals-api.com/api/latest?access_key=demo&base=USD&symbols=XAU"
                 gold_response2 = requests.get(gold_url2, timeout=10)
                 if gold_response2.status_code == 200:
@@ -76,10 +81,8 @@ def get_prices():
                 pass
         
         if gold_ons_usd is None:
-            # 3. Sabit yaklaşık değer (güncel)
             gold_ons_usd = 2350.00
         
-        # Gümüş fiyatı
         silver_ons_usd = None
         try:
             silver_url = "https://api.gold-api.com/price/XAG"
@@ -147,7 +150,7 @@ def create_qr(data):
     bio.seek(0)
     return bio
 
-# YENİ VE GELİŞMİŞ AI FONKSİYONU - Hata yönetimi ile
+# YENİ - Güncel Groq modelleri ile çalışan AI fonksiyonu
 def ask_ai(user_id, message):
     try:
         if user_id not in user_chat_history:
@@ -170,7 +173,6 @@ def ask_ai(user_id, message):
             "max_tokens": 2048
         }
         
-        # 3 kez dene (retry mekanizması)
         for attempt in range(3):
             try:
                 response = requests.post(
@@ -185,18 +187,26 @@ def ask_ai(user_id, message):
                     ai_message = result['choices'][0]['message']['content']
                     user_chat_history[user_id].append({"role": "assistant", "content": ai_message})
                     return ai_message
+                elif response.status_code == 400:
+                    error_msg = response.json()
+                    if "decommissioned" in str(error_msg):
+                        return "❌ Bu model kullanımdan kaldırıldı. Lütfen /start yapıp tekrar dene."
+                    elif "model" in str(error_msg).lower():
+                        return "❌ Model hatası. Lütfen /start yapıp tekrar dene."
+                    else:
+                        return f"❌ İstek hatası: {error_msg.get('error', {}).get('message', 'Bilinmeyen hata')}"
                 elif response.status_code == 401:
                     return "❌ API Key geçersiz! Lütfen Groq API key'ini kontrol et."
                 elif response.status_code == 429:
                     if attempt < 2:
-                        time.sleep(2)  # Rate limit için bekle
+                        time.sleep(2)
                         continue
                     return "❌ Çok fazla istek gönderildi. Lütfen biraz bekle."
                 else:
                     if attempt < 2:
                         time.sleep(1)
                         continue
-                    return f"❌ AI hatası: {response.status_code} - {response.text[:100]}"
+                    return f"❌ AI hatası: {response.status_code}"
             except requests.exceptions.Timeout:
                 if attempt < 2:
                     time.sleep(1)
@@ -212,6 +222,32 @@ def ask_ai(user_id, message):
         
     except Exception as e:
         return f"❌ Beklenmeyen hata: {str(e)[:100]}"
+
+# Groq'un güncel modellerini kontrol eden fonksiyon
+def check_groq_models():
+    try:
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        response = requests.get(
+            "https://api.groq.com/openai/v1/models",
+            headers=headers,
+            timeout=10
+        )
+        if response.status_code == 200:
+            models = response.json()
+            available_models = [m['id'] for m in models.get('data', [])]
+            print("📌 Mevcut Groq Modelleri:")
+            for model in available_models:
+                print(f"   - {model}")
+            return available_models
+        else:
+            print(f"❌ Modeller alınamadı: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"❌ Model kontrol hatası: {e}")
+        return []
 
 def get_coin_prices():
     try:
@@ -248,7 +284,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🧮 Gram hesabı\n"
         "📱 QR kod oluşturma\n"
         "🔗 Link kısaltma\n"
-        "🤖 AI sohbet (Mixtral)\n"
+        f"🤖 AI sohbet ({AI_MODEL})\n"
         "🎲 Rastgele sayı\n"
         "📝 Not defteri\n\n"
         "Hepsi ücretsiz ve güncel! 🚀"
@@ -380,7 +416,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == 'ai_chat':
             user_states[user_id] = 'waiting_ai'
             await query.edit_message_text(
-                "🤖 **AI SOHBET (Mixtral-8x7B)**\n\n"
+                f"🤖 **AI SOHBET ({AI_MODEL})**\n\n"
                 "Artık AI ile sohbet edebilirsin!\n"
                 "Sorularını yaz, cevap verecek.\n\n"
                 "🔄 3 kez deneme yapar, hata durumunda tekrar dener.\n"
@@ -422,7 +458,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🧮 **Hesapla** - Gram TL hesaplama\n"
                 "📱 **QR Kod** - QR kod oluşturma\n"
                 "🔗 **Link** - Link kısaltma\n"
-                "🤖 **AI** - Mixtral-8x7B sohbet\n"
+                f"🤖 **AI** - {AI_MODEL} sohbet\n"
                 "🎲 **Rastgele** - Rastgele sayı üretme\n"
                 "📝 **Not** - Not defteri\n\n"
                 "Her işlemden sonra ana menüye dönebilirsin.\n"
@@ -508,7 +544,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del user_states[user_id]
     
     elif state == 'waiting_ai':
-        # AI'ya mesaj göndermeden önce bilgi ver
         wait_msg = await update.message.reply_text(
             "🤖 AI düşünüyor... (en fazla 30 saniye)",
             reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
@@ -519,7 +554,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(response) > 4000:
             response = response[:4000] + "\n\n[Devamı kesildi...]"
         
-        # Wait message'ı sil
         await wait_msg.delete()
         
         await update.message.reply_text(
@@ -596,27 +630,63 @@ async def run_bot():
     print(f'📌 AI Model: {AI_MODEL}')
     print(f'🔑 API Key: {GROQ_API_KEY[:10]}...')
     
+    # Mevcut modelleri kontrol et
+    available_models = check_groq_models()
+    
+    if AI_MODEL not in available_models and available_models:
+        print(f"⚠️ Uyarı: {AI_MODEL} mevcut değil! Değiştiriliyor...")
+        # İlk mevcut modeli kullan
+        for model in available_models:
+            if 'llama' in model or 'gemma' in model:
+                print(f"✅ {model} kullanılıyor...")
+                global AI_MODEL
+                AI_MODEL = model
+                break
+    
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     
     print('✅ Bot aktif!')
+    
     await application.initialize()
     await application.start()
-    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    
+    await application.updater.start_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True
+    )
+    
+    print('📡 Polling başladı...')
+    
     while True:
         await asyncio.sleep(1)
 
+def signal_handler(sig, frame):
+    print('\n🛑 Bot kapatılıyor...')
+    sys.exit(0)
+
 def main():
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    Thread(target=run_flask, daemon=True).start()
+    
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    Thread(target=run_flask, daemon=True).start()
+    
     try:
         loop.run_until_complete(run_bot())
     except KeyboardInterrupt:
         print('🛑 Bot kapatıldı')
+    except Exception as e:
+        print(f'❌ Hata: {e}')
     finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except:
+            pass
         loop.close()
 
 if __name__ == '__main__':
