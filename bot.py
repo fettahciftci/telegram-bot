@@ -1,4 +1,5 @@
 import asyncio
+import re
 import requests
 import qrcode
 import io
@@ -14,6 +15,8 @@ import os
 import signal
 import sys
 
+# ÖNEMLİ: Bu token açık halde. Mümkünse @BotFather'dan /revoke ile yenile
+# ve burada os.environ.get('BOT_TOKEN') ile ortam değişkeninden oku.
 BOT_TOKEN = '8904642273:AAF6sQtbS9ZpoSRLNOeZLO9VFTWq1EsAY9s'
 
 flask_app = Flask(__name__)
@@ -28,7 +31,7 @@ def run_flask():
 user_states = {}
 user_notes = {}
 
-# Ana menü - HİSSE butonu eklendi
+# Ana menü - Hatırlatıcı ve AI Sohbet butonları eklendi
 MAIN_KEYBOARD = [
     [InlineKeyboardButton("💰 Altin Gram (TL)", callback_data='gold')],
     [InlineKeyboardButton("🥈 Gumus Gram (TL)", callback_data='silver')],
@@ -40,6 +43,8 @@ MAIN_KEYBOARD = [
     [InlineKeyboardButton("🔗 Link Kisalt", callback_data='shorten')],
     [InlineKeyboardButton("🎲 Rastgele Sayi", callback_data='random')],
     [InlineKeyboardButton("📝 Not Defteri", callback_data='note')],
+    [InlineKeyboardButton("⏰ Hatirlatici", callback_data='reminder')],
+    [InlineKeyboardButton("🤖 AI Sohbet", callback_data='ai_chat')],
     [InlineKeyboardButton("ℹ️ Yardim", callback_data='help')]
 ]
 
@@ -55,13 +60,14 @@ HISSE_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Ana Menü", callback_data='main_menu')]
 ]
 
+
 def get_prices():
     try:
         currency_url = "https://api.exchangerate-api.com/v4/latest/USD"
         currency_response = requests.get(currency_url, timeout=10)
         currency_data = currency_response.json()
         usd_try = currency_data['rates']['TRY']
-        
+
         gold_ons_usd = None
         try:
             gold_url = "https://api.gold-api.com/price/XAU"
@@ -71,7 +77,7 @@ def get_prices():
                 gold_ons_usd = gold_data['price']
         except:
             pass
-        
+
         if gold_ons_usd is None:
             try:
                 gold_url2 = "https://metals-api.com/api/latest?access_key=demo&base=USD&symbols=XAU"
@@ -81,10 +87,10 @@ def get_prices():
                     gold_ons_usd = gold_data2['rates']['XAU']
             except:
                 pass
-        
+
         if gold_ons_usd is None:
             gold_ons_usd = 2350.00
-        
+
         silver_ons_usd = None
         try:
             silver_url = "https://api.gold-api.com/price/XAG"
@@ -94,16 +100,16 @@ def get_prices():
                 silver_ons_usd = silver_data['price']
         except:
             pass
-        
+
         if silver_ons_usd is None:
             silver_ons_usd = 28.50
-        
+
         gold_gram_usd = gold_ons_usd / 31.1035
         silver_gram_usd = silver_ons_usd / 31.1035
-        
+
         gold_gram_try = round(gold_gram_usd * usd_try, 2)
         silver_gram_try = round(silver_gram_usd * usd_try, 2)
-        
+
         return {
             'gold_gram': gold_gram_try,
             'silver_gram': silver_gram_try,
@@ -121,11 +127,12 @@ def get_prices():
             'silver_ons': 28.50
         }
 
+
 def shorten_link(url):
     try:
         if not url.startswith(('http://', 'https://')):
             url = 'http://' + url
-        
+
         api_url = f"https://is.gd/create.php?format=simple&url={requests.utils.quote(url)}"
         response = requests.get(api_url, timeout=10)
         if response.status_code == 200 and response.text.strip() != url:
@@ -141,6 +148,7 @@ def shorten_link(url):
         print(f"Link kısaltma hatası: {e}")
         return url
 
+
 def create_qr(data):
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(data)
@@ -152,12 +160,13 @@ def create_qr(data):
     bio.seek(0)
     return bio
 
+
 def get_coin_prices():
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin%2Cethereum%2Ctether%2Cbinancecoin%2Cripple%2Ccardano%2Csolana%2Cdogecoin%2Cpolkadot%2Clitecoin%2Cchainlink%2Cpolygon&vs_currencies=usd%2Ctry"
         response = requests.get(url, timeout=15)
         data = response.json()
-        
+
         if response.status_code == 200:
             return data
         else:
@@ -166,15 +175,16 @@ def get_coin_prices():
         print("Kripto fiyat hatası:", e)
         return None
 
+
 def get_random_number(min_val=1, max_val=100):
     return random.randint(min_val, max_val)
+
 
 # ==================== BIST HİSSE FİYATLARI ====================
 
 def get_bist100():
     """BIST 100 endeksini getir"""
     try:
-        # Finnhub API (ücretsiz)
         url = "https://finnhub.io/api/v1/quote?symbol=BIST100&token=cj2k4r9r01qov59b7fugcj2k4r9r01qov59b7fv0"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
@@ -189,8 +199,7 @@ def get_bist100():
                 }
     except:
         pass
-    
-    # Alternatif: Yatırım API
+
     try:
         url = "https://api.collectapi.com/economy/hisseSenedi?key=apikey&symbol=BIST100"
         response = requests.get(url, timeout=10)
@@ -199,13 +208,13 @@ def get_bist100():
             return {'price': data['result']['price'], 'change': data['result']['change']}
     except:
         pass
-    
+
     return None
+
 
 def get_hisse(symbol):
     """Hisse senedi fiyatını getir"""
     try:
-        # Finnhub API
         url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token=cj2k4r9r01qov59b7fugcj2k4r9r01qov59b7fv0"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
@@ -220,8 +229,7 @@ def get_hisse(symbol):
                 }
     except:
         pass
-    
-    # Alternatif: Demo veri (Finnhub ücretsiz limit aşımında)
+
     demo_data = {
         'ASELS': {'price': 65.45, 'change': 1.25},
         'GARAN': {'price': 98.75, 'change': -0.85},
@@ -230,11 +238,12 @@ def get_hisse(symbol):
         'ENJSA': {'price': 45.60, 'change': -0.30},
         'KCHOL': {'price': 215.50, 'change': 1.80},
     }
-    
+
     if symbol in demo_data:
         return demo_data[symbol]
-    
+
     return None
+
 
 def get_hisse_name(symbol):
     names = {
@@ -247,11 +256,124 @@ def get_hisse_name(symbol):
     }
     return names.get(symbol, symbol)
 
+
+# ==================== HATIRLATICI (API gerektirmez) ====================
+
+def parse_duration_to_seconds(text):
+    """
+    '10dk', '1saat', '30sn', '45s', '2.5saat', veya sade '15' (dakika kabul edilir)
+    formatlarını saniyeye çevirir. Geçersizse None döner.
+    """
+    text = text.strip().lower().replace(' ', '').replace(',', '.')
+    match = re.match(r'^(\d+(?:\.\d+)?)(sn|saniye|s|dk|dakika|m|saat|sa|h)?$', text)
+    if not match:
+        return None
+
+    value = float(match.group(1))
+    unit = match.group(2) or 'dk'
+
+    if unit in ('sn', 'saniye', 's'):
+        seconds = value
+    elif unit in ('dk', 'dakika', 'm'):
+        seconds = value * 60
+    elif unit in ('saat', 'sa', 'h'):
+        seconds = value * 3600
+    else:
+        seconds = value * 60
+
+    seconds = int(seconds)
+    if seconds <= 0 or seconds > 24 * 3600:  # 24 saatten uzunu reddet
+        return None
+    return seconds
+
+
+async def send_reminder_notifications(context: ContextTypes.DEFAULT_TYPE):
+    """Süre dolduğunda art arda 10 bildirim gönderir. Tamamen yerel, API gerektirmez."""
+    job = context.job
+    chat_id = job.chat_id
+    note_text = job.data.get('text', '') if job.data else ''
+
+    for i in range(1, 11):
+        try:
+            msg = f"⏰ **HATIRLATICI ({i}/10)**\n\nSüren doldu!"
+            if note_text:
+                msg += f"\n📌 Not: {note_text}"
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=msg,
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            print("Hatırlatıcı bildirim hatası:", e)
+        if i < 10:
+            await asyncio.sleep(1.5)
+
+
+# ==================== YEREL AI SOHBET (API gerektirmez) ====================
+
+AI_RULES = [
+    (r'\b(selam|merhaba|hey|hi|naber)\b', [
+        "Selam! Nasıl yardımcı olabilirim? 😊",
+        "Merhaba! Bugün nasılsın?",
+        "Hey! Buradayım, ne konuşmak istersin?"
+    ]),
+    (r'\b(nasılsın|naptın|napıyon)\b', [
+        "İyiyim, teşekkürler! Sen nasılsın?",
+        "Gayet iyi, sayılarla ve emojilerle uğraşıyorum 😄 Sen nasılsın?"
+    ]),
+    (r'\b(adın|ismin) ne\b|\bkimsin\b', [
+        "Ben bu botun içindeki küçük bir sohbet motoruyum, dış bir API kullanmıyorum.",
+        "Adım yok ama buradayım, sohbet edebiliriz!"
+    ]),
+    (r'\bteşekkür|sağol|eyvallah\b', [
+        "Rica ederim! 🙌",
+        "Ne demek, her zaman!"
+    ]),
+    (r'\b(görüşürüz|bay bay|hoşçakal|çıkış)\b', [
+        "Görüşmek üzere! Ana menüye dönmek için aşağıdaki butonu kullanabilirsin.",
+        "Bay bay! 👋"
+    ]),
+    (r'\baltın|gümüş|dolar|kripto|hisse|bist\b', [
+        "Bu konuda gerçek zamanlı veri için ana menüden ilgili butona bakabilirsin, ben sadece sohbet ediyorum 😊"
+    ]),
+    (r'\bşaka\b', [
+        "Neden bilgisayarlar hiç üşümez? Çünkü pencereleri (Windows) hep açıktır 😄",
+        "Matematikçi neden bahçeye gitmiş? Köklerini sulamaya 🌱"
+    ]),
+    (r'\bnasıl çalışıyorsun|api kullanıyor musun\b', [
+        "Hayır, dış bir yapay zeka API'si kullanmıyorum. Anahtar kelimelere göre cevap veren basit bir kural motoruyum."
+    ]),
+]
+
+AI_FALLBACKS = [
+    "Bunu tam anlayamadım ama dinliyorum, devam et 🙂",
+    "İlginç! Biraz daha anlatır mısın?",
+    "Hmm, bu konuda emin değilim ama seninle sohbet etmeye devam edebilirim.",
+    "Anladım. Başka ne düşünüyorsun?",
+    "Söylediğin şeyi not ettim, devam edelim mi?"
+]
+
+
+def simple_ai_response(text):
+    """Tamamen yerel, kural tabanlı basit sohbet motoru. Hiçbir dış API çağrısı yapmaz."""
+    lowered = text.lower()
+
+    for pattern, responses in AI_RULES:
+        if re.search(pattern, lowered):
+            return random.choice(responses)
+
+    if text.strip().endswith('?'):
+        return "Güzel soru! Şu an net bir cevabım yok ama düşünmeye devam ediyorum 🤔"
+
+    return random.choice(AI_FALLBACKS)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id in user_states:
         del user_states[user_id]
-    
+
     reply_markup = InlineKeyboardMarkup(MAIN_KEYBOARD)
     welcome_text = (
         "🤖 **HOŞGELDİN!**\n\n"
@@ -264,7 +386,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📱 QR kod oluşturma\n"
         "🔗 Link kısaltma\n"
         "🎲 Rastgele sayı\n"
-        "📝 Not defteri\n\n"
+        "📝 Not defteri\n"
+        "⏰ Hatırlatıcı\n"
+        "🤖 AI Sohbet\n\n"
         "Hepsi ücretsiz ve güncel! 🚀"
     )
     await update.message.reply_text(
@@ -273,15 +397,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    
+
     if user_id in user_states:
         del user_states[user_id]
-    
+
     try:
         if data == 'main_menu':
             reply_markup = InlineKeyboardMarkup(MAIN_KEYBOARD)
@@ -290,7 +415,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-        
+
         elif data == 'hisse':
             reply_markup = InlineKeyboardMarkup(HISSE_KEYBOARD)
             await query.edit_message_text(
@@ -306,7 +431,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-        
+
         elif data == 'hisse_bist100':
             await query.edit_message_text(
                 "🔄 BIST 100 endeksi getiriliyor...",
@@ -332,31 +457,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "❌ BIST 100 verisi alınamadı. Lütfen tekrar dene.",
                     reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD)
                 )
-        
+
         elif data.startswith('hisse_'):
-            # Hisse kodu: hisse_aselsan -> ASELS
             symbol = data.replace('hisse_', '').upper()
             name = get_hisse_name(symbol)
-            
+
             await query.edit_message_text(
                 f"🔄 {name} ({symbol}) fiyatı getiriliyor...",
                 reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD)
             )
-            
+
             hisse = get_hisse(symbol)
             if hisse:
                 emoji = "📈" if hisse['change'] > 0 else "📉" if hisse['change'] < 0 else "➖"
                 msg = f"📊 **{name} ({symbol})**\n\n"
                 msg += f"💰 Fiyat: {hisse['price']:.2f} TL\n"
                 msg += f"{emoji} Değişim: {hisse['change']:.2f}%\n"
-                
+
                 if 'high' in hisse and hisse['high']:
                     msg += f"📈 En Yüksek: {hisse['high']:.2f} TL\n"
                     msg += f"📉 En Düşük: {hisse['low']:.2f} TL\n"
                     msg += f"🔓 Açılış: {hisse['open']:.2f} TL\n\n"
-                
+
                 msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
-                
+
                 await query.edit_message_text(
                     msg,
                     reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD),
@@ -367,9 +491,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"❌ {name} ({symbol}) verisi alınamadı. Lütfen tekrar dene.",
                     reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD)
                 )
-        
+
         # ============ DİĞER MENÜLER ============
-        
+
         elif data == 'gold':
             prices = get_prices()
             if prices:
@@ -379,13 +503,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"💰 **1 Gram Altin: {prices['gold_gram']} TL**\n\n"
                 msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
                 await query.edit_message_text(
-                    msg, 
+                    msg,
                     reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                     parse_mode='Markdown'
                 )
             else:
                 await query.edit_message_text("❌ Fiyat bilgisi alinamadi.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
-        
+
         elif data == 'silver':
             prices = get_prices()
             if prices:
@@ -395,13 +519,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"💰 **1 Gram Gumus: {prices['silver_gram']} TL**\n\n"
                 msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
                 await query.edit_message_text(
-                    msg, 
+                    msg,
                     reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                     parse_mode='Markdown'
                 )
             else:
                 await query.edit_message_text("❌ Fiyat bilgisi alinamadi.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
-        
+
         elif data == 'dolar':
             prices = get_prices()
             if prices:
@@ -411,13 +535,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"🥈 Gumus: {prices['silver_gram']} TL/gr\n\n"
                 msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
                 await query.edit_message_text(
-                    msg, 
+                    msg,
                     reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                     parse_mode='Markdown'
                 )
             else:
                 await query.edit_message_text("❌ Veri alinamadi.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
-        
+
         elif data == 'coins':
             await query.edit_message_text("🔄 Kripto para fiyatları getiriliyor...", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
             coin_data = get_coin_prices()
@@ -425,7 +549,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg = "🪙 **KRIPTO PARA FİYATLARI**\n\n"
                 ordered_coins = ['bitcoin', 'ethereum', 'tether', 'binancecoin', 'ripple', 'cardano', 'solana', 'dogecoin', 'polkadot', 'litecoin', 'chainlink', 'polygon']
                 coin_names = {
-                    'bitcoin': 'BTC', 'ethereum': 'ETH', 'tether': 'USDT', 
+                    'bitcoin': 'BTC', 'ethereum': 'ETH', 'tether': 'USDT',
                     'binancecoin': 'BNB', 'ripple': 'XRP', 'cardano': 'ADA',
                     'solana': 'SOL', 'dogecoin': 'DOGE', 'polkadot': 'DOT',
                     'litecoin': 'LTC', 'chainlink': 'LINK', 'polygon': 'MATIC'
@@ -438,13 +562,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         msg += f"💰 {name}: ${usd_price:.2f} / ₺{try_price:.2f}\n"
                 msg += "\n📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
                 await query.edit_message_text(
-                    msg, 
+                    msg,
                     reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                     parse_mode='Markdown'
                 )
             else:
                 await query.edit_message_text("❌ Kripto fiyat bilgisi alinamadi.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
-        
+
         elif data == 'calc':
             user_states[user_id] = 'waiting_calc'
             await query.edit_message_text(
@@ -455,7 +579,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                 parse_mode='Markdown'
             )
-        
+
         elif data == 'qr':
             user_states[user_id] = 'waiting_qr'
             await query.edit_message_text(
@@ -466,7 +590,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                 parse_mode='Markdown'
             )
-        
+
         elif data == 'shorten':
             user_states[user_id] = 'waiting_shorten'
             await query.edit_message_text(
@@ -477,7 +601,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                 parse_mode='Markdown'
             )
-        
+
         elif data == 'random':
             user_states[user_id] = 'waiting_random'
             await query.edit_message_text(
@@ -489,7 +613,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                 parse_mode='Markdown'
             )
-        
+
         elif data == 'note':
             user_states[user_id] = 'waiting_note'
             await query.edit_message_text(
@@ -500,7 +624,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                 parse_mode='Markdown'
             )
-        
+
+        elif data == 'reminder':
+            user_states[user_id] = 'waiting_reminder'
+            await query.edit_message_text(
+                "⏰ **HATIRLATICI**\n\n"
+                "Süreyi yaz, süre dolunca art arda 10 bildirim göndereceğim.\n\n"
+                "Format örnekleri:\n"
+                "• `10dk` → 10 dakika sonra\n"
+                "• `1saat` → 1 saat sonra\n"
+                "• `30sn` → 30 saniye sonra\n"
+                "• `15` → sade sayı yazarsan dakika kabul edilir\n\n"
+                "İstersen sürenin sonuna bir not da ekleyebilirsin, örnek:\n"
+                "`10dk Yemek pişiyor`\n\n"
+                "**Süreyi yaz:**",
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                parse_mode='Markdown'
+            )
+
+        elif data == 'ai_chat':
+            user_states[user_id] = 'ai_chat_mode'
+            await query.edit_message_text(
+                "🤖 **AI SOHBET MODU**\n\n"
+                "Benimle yazışabilirsin. Bu tamamen yerel, kural tabanlı bir "
+                "sohbet motoru — hiçbir dış API kullanmıyor.\n\n"
+                "Çıkmak için Ana Menü butonuna bas.\n\n"
+                "**Bir şey yaz:**",
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                parse_mode='Markdown'
+            )
+
         elif data == 'help':
             help_text = (
                 "ℹ️ **YARDIM**\n\n"
@@ -519,8 +672,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📱 **QR Kod** - QR kod oluşturma\n"
                 "🔗 **Link** - Link kısaltma\n"
                 "🎲 **Rastgele** - Rastgele sayı üretme\n"
-                "📝 **Not** - Not defteri\n\n"
-                "📌 Veriler Finnhub API'den alınır.\n"
+                "📝 **Not** - Not defteri\n"
+                "⏰ **Hatırlatıcı** - Süre dolunca 10 bildirim (API gerektirmez)\n"
+                "🤖 **AI Sohbet** - Yerel, kural tabanlı sohbet (API gerektirmez)\n\n"
+                "📌 Fiyat verileri ilgili API'lerden alınır.\n"
                 "Her işlemden sonra ana menüye dönebilirsin.\n"
                 "İyi kullanımlar! 🚀"
             )
@@ -529,7 +684,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                 parse_mode='Markdown'
             )
-    
+
     except Exception as e:
         print("Buton hatasi:", e)
         await query.edit_message_text(
@@ -537,15 +692,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
         )
 
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
-    
+
     if user_id not in user_states:
         return
-    
+
     state = user_states[user_id]
-    
+
     if state == 'waiting_calc':
         try:
             gram = float(text.replace(',', '.'))
@@ -571,7 +727,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
             )
         del user_states[user_id]
-    
+
     elif state == 'waiting_qr':
         try:
             bio = create_qr(text)
@@ -586,7 +742,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
             )
         del user_states[user_id]
-    
+
     elif state == 'waiting_shorten':
         await update.message.reply_text(
             "🔄 Link kısaltılıyor...",
@@ -602,7 +758,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         del user_states[user_id]
-    
+
     elif state == 'waiting_random':
         try:
             parts = text.split('-')
@@ -635,7 +791,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
             )
         del user_states[user_id]
-    
+
     elif state == 'waiting_note':
         if user_id not in user_notes:
             user_notes[user_id] = []
@@ -652,7 +808,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
             parse_mode='Markdown'
         )
-        
+
         if len(user_notes[user_id]) > 0:
             notes_msg = "📚 **NOTLARIN (son 5):**\n\n"
             for i, note in enumerate(user_notes[user_id][-5:], 1):
@@ -663,48 +819,104 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                 parse_mode='Markdown'
             )
-        
+
         del user_states[user_id]
+
+    elif state == 'waiting_reminder':
+        # "10dk Yemek pişiyor" gibi süre + opsiyonel not formatını ayır
+        parts = text.split(maxsplit=1)
+        duration_part = parts[0] if parts else text
+        note_part = parts[1] if len(parts) > 1 else ''
+
+        seconds = parse_duration_to_seconds(duration_part)
+        if seconds is None:
+            await update.message.reply_text(
+                "❌ Geçersiz süre formatı! Örnek: `10dk`, `1saat`, `30sn` veya sade `15`",
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                parse_mode='Markdown'
+            )
+        else:
+            if context.job_queue is None:
+                await update.message.reply_text(
+                    "❌ Hatırlatıcı sistemi aktif değil. Sunucuda `pip install \"python-telegram-bot[job-queue]\"` "
+                    "kurulu olduğundan emin ol.",
+                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+                )
+            else:
+                context.job_queue.run_once(
+                    send_reminder_notifications,
+                    when=seconds,
+                    chat_id=update.effective_chat.id,
+                    data={'text': note_part}
+                )
+                readable = duration_part
+                msg = f"⏰ **Hatırlatıcı kuruldu!**\n\n"
+                msg += f"🕒 Süre: {readable} ({seconds} saniye)\n"
+                if note_part:
+                    msg += f"📌 Not: {note_part}\n"
+                msg += "\nSüre dolunca art arda 10 bildirim göndereceğim."
+                await update.message.reply_text(
+                    msg,
+                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                    parse_mode='Markdown'
+                )
+        del user_states[user_id]
+
+    elif state == 'ai_chat_mode':
+        response = simple_ai_response(text)
+        await update.message.reply_text(
+            response,
+            reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+        )
+        # Not: state burada silinmiyor, kullanıcı Ana Menü butonuna basana kadar
+        # AI sohbet modunda kalmaya devam eder.
+
 
 async def run_bot():
     print('🤖 Bot başlatılıyor...')
     print('📈 BIST 100 Hisse Senedi sistemi aktif!')
-    print('🔧 ASELSAN, GARAN, TCELL, TUPRS, ENJSA, KCHOL')
-    
+    print('⏰ Hatırlatıcı sistemi aktif!')
+    print('🤖 Yerel AI sohbet sistemi aktif!')
+
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    
+
+    if application.job_queue is None:
+        print('⚠️  UYARI: job_queue mevcut değil. Hatırlatıcı çalışmayacak.')
+        print('    Kurulum için: pip install "python-telegram-bot[job-queue]"')
+
     print('✅ Bot aktif!')
-    
+
     await application.initialize()
     await application.start()
-    
+
     await application.updater.start_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True
     )
-    
+
     print('📡 Polling başladı...')
-    print('📈 Hisse senetleri hazır!')
-    
+
     while True:
         await asyncio.sleep(1)
+
 
 def signal_handler(sig, frame):
     print('\n🛑 Bot kapatılıyor...')
     sys.exit(0)
 
+
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     Thread(target=run_flask, daemon=True).start()
-    
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
+
     try:
         loop.run_until_complete(run_bot())
     except KeyboardInterrupt:
@@ -717,6 +929,7 @@ def main():
         except:
             pass
         loop.close()
+
 
 if __name__ == '__main__':
     main()
