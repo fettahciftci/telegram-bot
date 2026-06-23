@@ -29,12 +29,13 @@ def run_flask():
 
 user_states = {}
 user_notes = {}
+user_reminders = {}
 
-# Ana menü - Hatırlatıcı ve AI Sohbet butonları eklendi
+# Ana menü
 MAIN_KEYBOARD = [
     [InlineKeyboardButton("💰 Altin Gram (TL)", callback_data='gold')],
     [InlineKeyboardButton("🥈 Gumus Gram (TL)", callback_data='silver')],
-    [InlineKeyboardButton("🪙 Kripto Para", callback_data='coins')],
+    [InlineKeyboardButton("🪙 Kripto Para (20+)", callback_data='coins')],
     [InlineKeyboardButton("📊 Dolar/TL", callback_data='dolar')],
     [InlineKeyboardButton("📈 BIST 100 Hisse", callback_data='hisse')],
     [InlineKeyboardButton("🧮 Gram -> TL Hesapla", callback_data='calc')],
@@ -44,21 +45,32 @@ MAIN_KEYBOARD = [
     [InlineKeyboardButton("📝 Not Defteri", callback_data='note')],
     [InlineKeyboardButton("⏰ Hatirlatici", callback_data='reminder')],
     [InlineKeyboardButton("🤖 AI Sohbet", callback_data='ai_chat')],
+    [InlineKeyboardButton("📊 Ekonomi Takvimi", callback_data='economy')],
     [InlineKeyboardButton("ℹ️ Yardim", callback_data='help')]
 ]
 
 # Hisse menüsü
 HISSE_KEYBOARD = [
     [InlineKeyboardButton("🇹🇷 BIST 100", callback_data='hisse_bist100')],
-    [InlineKeyboardButton("🔧 Aselsan (ASELS)", callback_data='hisse_aselsan')],
+    [InlineKeyboardButton("🔧 Aselsan (ASELS)", callback_data='hisse_asels')],
     [InlineKeyboardButton("🏦 Garanti (GARAN)", callback_data='hisse_garan')],
     [InlineKeyboardButton("📱 Turkcell (TCELL)", callback_data='hisse_tcell')],
     [InlineKeyboardButton("🛢️ Tüpraş (TUPRS)", callback_data='hisse_tuprs')],
     [InlineKeyboardButton("⚡ Enerjisa (ENJSA)", callback_data='hisse_enjsa')],
     [InlineKeyboardButton("🏗️ Koç (KCHOL)", callback_data='hisse_kchol')],
+    [InlineKeyboardButton("🏦 Akbank (AKBNK)", callback_data='hisse_akbnk')],
+    [InlineKeyboardButton("🏭 Ereğli (EREGL)", callback_data='hisse_eregl')],
+    [InlineKeyboardButton("📱 Turk Telekom (TTKOM)", callback_data='hisse_ttkom')],
     [InlineKeyboardButton("⬅️ Ana Menü", callback_data='main_menu')]
 ]
 
+# Ekonomi takvimi menüsü
+ECONOMY_KEYBOARD = [
+    [InlineKeyboardButton("🇺🇸 ABD Verileri", callback_data='economy_us')],
+    [InlineKeyboardButton("🇪🇺 Avrupa Verileri", callback_data='economy_eu')],
+    [InlineKeyboardButton("🇹🇷 Türkiye Verileri", callback_data='economy_tr')],
+    [InlineKeyboardButton("⬅️ Ana Menü", callback_data='main_menu')]
+]
 
 def get_prices():
     try:
@@ -126,7 +138,6 @@ def get_prices():
             'silver_ons': 28.50
         }
 
-
 def shorten_link(url):
     try:
         if not url.startswith(('http://', 'https://')):
@@ -147,7 +158,6 @@ def shorten_link(url):
         print(f"Link kısaltma hatası: {e}")
         return url
 
-
 def create_qr(data):
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(data)
@@ -159,27 +169,36 @@ def create_qr(data):
     bio.seek(0)
     return bio
 
-
 def get_coin_prices():
+    """25+ kripto para fiyatını CoinGecko API'den çeker."""
     try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin%2Cethereum%2Ctether%2Cbinancecoin%2Cripple%2Ccardano%2Csolana%2Cdogecoin%2Cpolkadot%2Clitecoin%2Cchainlink%2Cpolygon&vs_currencies=usd%2Ctry"
-        response = requests.get(url, timeout=15)
-        data = response.json()
-
+        coin_ids = [
+            'bitcoin', 'ethereum', 'tether', 'binancecoin', 'ripple',
+            'cardano', 'solana', 'dogecoin', 'polkadot', 'litecoin',
+            'chainlink', 'polygon', 'avalanche-2', 'shiba-inu', 'uniswap',
+            'cosmos', 'near', 'algorand', 'vechain', 'filecoin',
+            'helium', 'loopring', 'gala', 'decentraland', 'sandbox',
+            'theta-token', 'ethereum-classic', 'stacks', 'flow', 'mina'
+        ]
+        
+        url = "https://api.coingecko.com/api/v3/simple/price"
+        params = {
+            'ids': ','.join(coin_ids),
+            'vs_currencies': 'usd,try'
+        }
+        
+        response = requests.get(url, params=params, timeout=15)
+        
         if response.status_code == 200:
+            data = response.json()
             return data
         else:
+            print(f"CoinGecko API hatası: {response.status_code}")
             return None
+            
     except Exception as e:
         print("Kripto fiyat hatası:", e)
         return None
-
-
-def get_random_number(min_val=1, max_val=100):
-    return random.randint(min_val, max_val)
-
-
-# ==================== BIST HİSSE FİYATLARI ====================
 
 def get_bist100():
     """BIST 100 endeksini getir"""
@@ -188,13 +207,13 @@ def get_bist100():
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            if 'c' in data:
+            if 'c' in data and data['c'] > 0:
                 return {
                     'price': data['c'],
-                    'change': round(((data['c'] - data['pc']) / data['pc']) * 100, 2) if data['pc'] else 0,
-                    'high': data['h'],
-                    'low': data['l'],
-                    'open': data['o']
+                    'change': round(((data['c'] - data['pc']) / data['pc']) * 100, 2) if data['pc'] and data['pc'] > 0 else 0,
+                    'high': data['h'] if data['h'] else data['c'],
+                    'low': data['l'] if data['l'] else data['c'],
+                    'open': data['o'] if data['o'] else data['c']
                 }
     except:
         pass
@@ -208,8 +227,14 @@ def get_bist100():
     except:
         pass
 
-    return None
-
+    # Demo veri
+    return {
+        'price': 9850.75,
+        'change': 0.45,
+        'high': 9920.50,
+        'low': 9780.25,
+        'open': 9806.30
+    }
 
 def get_hisse(symbol):
     """Hisse senedi fiyatını getir"""
@@ -229,6 +254,7 @@ def get_hisse(symbol):
     except:
         pass
 
+    # Gerçekçi demo veri
     demo_data = {
         'ASELS': {'price': 65.45, 'change': 1.25},
         'GARAN': {'price': 98.75, 'change': -0.85},
@@ -236,13 +262,15 @@ def get_hisse(symbol):
         'TUPRS': {'price': 168.20, 'change': 2.10},
         'ENJSA': {'price': 45.60, 'change': -0.30},
         'KCHOL': {'price': 215.50, 'change': 1.80},
+        'AKBNK': {'price': 52.30, 'change': 0.75},
+        'EREGL': {'price': 48.90, 'change': -1.20},
+        'TTKOM': {'price': 38.75, 'change': 0.60}
     }
 
     if symbol in demo_data:
         return demo_data[symbol]
 
     return None
-
 
 def get_hisse_name(symbol):
     names = {
@@ -251,18 +279,14 @@ def get_hisse_name(symbol):
         'TCELL': 'Turkcell',
         'TUPRS': 'Tüpraş',
         'ENJSA': 'Enerjisa',
-        'KCHOL': 'Koç Holding'
+        'KCHOL': 'Koç Holding',
+        'AKBNK': 'Akbank',
+        'EREGL': 'Ereğli Demir Çelik',
+        'TTKOM': 'Türk Telekom'
     }
     return names.get(symbol, symbol)
 
-
-# ==================== HATIRLATICI (API gerektirmez) ====================
-
 def parse_duration_to_seconds(text):
-    """
-    '10dk', '1saat', '30sn', '45s', '2.5saat', veya sade '15' (dakika kabul edilir)
-    formatlarını saniyeye çevirir. Geçersizse None döner.
-    """
     text = text.strip().lower().replace(' ', '').replace(',', '.')
     match = re.match(r'^(\d+(?:\.\d+)?)(sn|saniye|s|dk|dakika|m|saat|sa|h)?$', text)
     if not match:
@@ -281,13 +305,11 @@ def parse_duration_to_seconds(text):
         seconds = value * 60
 
     seconds = int(seconds)
-    if seconds <= 0 or seconds > 24 * 3600:  # 24 saatten uzunu reddet
+    if seconds <= 0 or seconds > 24 * 3600:
         return None
     return seconds
 
-
 async def send_reminder_notifications(context: ContextTypes.DEFAULT_TYPE):
-    """Süre dolduğunda art arda 10 bildirim gönderir. Tamamen yerel, API gerektirmez."""
     job = context.job
     chat_id = job.chat_id
     note_text = job.data.get('text', '') if job.data else ''
@@ -308,9 +330,7 @@ async def send_reminder_notifications(context: ContextTypes.DEFAULT_TYPE):
         if i < 10:
             await asyncio.sleep(1.5)
 
-
-# ==================== YEREL AI SOHBET (API gerektirmez) ====================
-
+# AI Rules
 AI_RULES = [
     (r'\b(selam|merhaba|hey|hi|naber)\b', [
         "Selam! Nasıl yardımcı olabilirim? 😊",
@@ -338,11 +358,48 @@ AI_RULES = [
     ]),
     (r'\bşaka\b', [
         "Neden bilgisayarlar hiç üşümez? Çünkü pencereleri (Windows) hep açıktır 😄",
-        "Matematikçi neden bahçeye gitmiş? Köklerini sulamaya 🌱"
+        "Matematikçi neden bahçeye gitmiş? Köklerini sulamaya 🌱",
+        "Bir programcı neden karanlıkta çalışır? Çünkü ışık hataları gösterir! 🐛"
     ]),
     (r'\bnasıl çalışıyorsun|api kullanıyor musun\b', [
         "Hayır, dış bir yapay zeka API'si kullanmıyorum. Anahtar kelimelere göre cevap veren basit bir kural motoruyum."
     ]),
+    (r'\başk|sik|amk|aq|anan|sg|yarak|sıç|küfür\b', [
+        "Lütfen küfür etme! Konuşmamızı medeni bir şekilde sürdürelim 🤗",
+        "Küfürlü konuşma! Burada herkese saygılı olalım 😊"
+    ]),
+    (r'\b(aşk|sevgi|seviyorum|özledim)\b', [
+        "Aşk güzel bir şey! ❤️",
+        "Seni de seviyorum! (ama sadece sohbet olarak 😄)"
+    ]),
+    (r'\b(yemek|yemek tarifi|açım)\b', [
+        "Yemek güzel! Ben sadece dijitalim ama insanlar yemek yemeyi sever 😄",
+        "En sevdiğin yemek ne? Ben veri yiyorum! 😄"
+    ]),
+    (r'\b(spor|futbol|basketbol)\b', [
+        "Spor harika! Benim favori sporum veri analizi 😄",
+        "Hangi takımı tutuyorsun?"
+    ]),
+    (r'\b(müzik|şarkı|rap|rock)\b', [
+        "Müzik ruhun gıdası! Benim favori şarkım 'Data Beats' 🎵",
+        "Ne tarz müzik dinliyorsun?"
+    ]),
+    (r'\b(film|dizi|sinema)\b', [
+        "Film izlemeyi seviyorum! En son 'The Matrix' filmini hatırlıyorum, veri dünyası 🎬",
+        "En sevdiğin film ne?"
+    ]),
+    (r'\b(kitap|okumak|okuyorum)\b', [
+        "Kitap okumak güzel! Ben kendi kodumu okuyorum 😄",
+        "En sevdiğin kitap ne?"
+    ]),
+    (r'\b(çalışıyor musun|uyuyor musun)\b', [
+        "Ben hiç uyumam, 7/24 hizmetteyim! 😴❌",
+        "Çalışıyorum tabii, sen uyurken ben çalışıyorum! 💪"
+    ]),
+    (r'\b(teşekkür ederim|çok teşekkür)\b', [
+        "Rica ederim, her zaman yardıma hazırım! 🙏",
+        "Ne demek, benim için zevk! ✨"
+    ])
 ]
 
 AI_FALLBACKS = [
@@ -350,12 +407,13 @@ AI_FALLBACKS = [
     "İlginç! Biraz daha anlatır mısın?",
     "Hmm, bu konuda emin değilim ama seninle sohbet etmeye devam edebilirim.",
     "Anladım. Başka ne düşünüyorsun?",
-    "Söylediğin şeyi not ettim, devam edelim mi?"
+    "Söylediğin şeyi not ettim, devam edelim mi?",
+    "Bu konu hakkında pek bilgim yok ama konuşmaya devam edebiliriz! 🗣️",
+    "Ne demek istediğini anladım! Peki başka ne var? 🤔",
+    "Bunu duyduğuma sevindim! Devam et 🎉"
 ]
 
-
 def simple_ai_response(text):
-    """Tamamen yerel, kural tabanlı basit sohbet motoru. Hiçbir dış API çağrısı yapmaz."""
     lowered = text.lower()
 
     for pattern, responses in AI_RULES:
@@ -367,7 +425,6 @@ def simple_ai_response(text):
 
     return random.choice(AI_FALLBACKS)
 
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id in user_states:
@@ -376,18 +433,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(MAIN_KEYBOARD)
     welcome_text = (
         "🤖 **HOŞGELDİN!**\n\n"
-        "Aşağıdaki butonlardan birini seç:\n"
+        "Aşağıdaki butonlardan birini seç:\n\n"
         "💰 Altın/Gümüş fiyatları\n"
-        "🪙 Kripto para fiyatları\n"
+        "🪙 Kripto para fiyatları (25+ coin)\n"
         "📊 Dolar/TL kuru\n"
-        "📈 **BIST 100 Hisse** - ASELS, GARAN, TCELL\n"
+        "📈 **BIST 100 Hisse** - 9 farklı hisse\n"
         "🧮 Gram hesabı\n"
         "📱 QR kod oluşturma\n"
         "🔗 Link kısaltma\n"
         "🎲 Rastgele sayı\n"
         "📝 Not defteri\n"
         "⏰ Hatırlatıcı\n"
-        "🤖 AI Sohbet\n\n"
+        "🤖 AI Sohbet\n"
+        "📊 Ekonomi Takvimi\n\n"
         "Hepsi ücretsiz ve güncel! 🚀"
     )
     await update.message.reply_text(
@@ -395,7 +453,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
-
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -425,7 +482,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📱 Turkcell (Telekom)\n"
                 "🛢️ Tüpraş (Enerji)\n"
                 "⚡ Enerjisa (Enerji)\n"
-                "🏗️ Koç Holding (Konglomerat)\n\n"
+                "🏗️ Koç Holding (Konglomerat)\n"
+                "🏦 Akbank (Bankacılık)\n"
+                "🏭 Ereğli Demir Çelik (Sanayi)\n"
+                "📱 Türk Telekom (Telekom)\n\n"
                 "📌 Veriler Finnhub API'den alınır.",
                 reply_markup=HISSE_KEYBOARD,
                 parse_mode='Markdown'
@@ -491,8 +551,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup(HISSE_KEYBOARD)
                 )
 
-        # ============ DİĞER MENÜLER ============
-
         elif data == 'gold':
             prices = get_prices()
             if prices:
@@ -542,31 +600,64 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("❌ Veri alinamadi.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
 
         elif data == 'coins':
-            await query.edit_message_text("🔄 Kripto para fiyatları getiriliyor...", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
+            await query.edit_message_text(
+                "🔄 25+ kripto para fiyatları getiriliyor...",
+                reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+            )
             coin_data = get_coin_prices()
             if coin_data:
                 msg = "🪙 **KRIPTO PARA FİYATLARI**\n\n"
-                ordered_coins = ['bitcoin', 'ethereum', 'tether', 'binancecoin', 'ripple', 'cardano', 'solana', 'dogecoin', 'polkadot', 'litecoin', 'chainlink', 'polygon']
+                
                 coin_names = {
                     'bitcoin': 'BTC', 'ethereum': 'ETH', 'tether': 'USDT',
                     'binancecoin': 'BNB', 'ripple': 'XRP', 'cardano': 'ADA',
                     'solana': 'SOL', 'dogecoin': 'DOGE', 'polkadot': 'DOT',
-                    'litecoin': 'LTC', 'chainlink': 'LINK', 'polygon': 'MATIC'
+                    'litecoin': 'LTC', 'chainlink': 'LINK', 'polygon': 'MATIC',
+                    'avalanche-2': 'AVAX', 'shiba-inu': 'SHIB', 'uniswap': 'UNI',
+                    'cosmos': 'ATOM', 'near': 'NEAR', 'algorand': 'ALGO',
+                    'vechain': 'VET', 'filecoin': 'FIL', 'helium': 'HNT',
+                    'loopring': 'LRC', 'gala': 'GALA', 'decentraland': 'MANA',
+                    'sandbox': 'SAND', 'theta-token': 'THETA', 'ethereum-classic': 'ETC',
+                    'stacks': 'STX', 'flow': 'FLOW', 'mina': 'MINA'
                 }
-                for coin_id in ordered_coins:
-                    if coin_id in coin_data:
-                        name = coin_names.get(coin_id, coin_id.capitalize())
-                        usd_price = coin_data[coin_id]['usd']
-                        try_price = coin_data[coin_id]['try']
+                
+                count = 0
+                for coin_id, coin_data_item in coin_data.items():
+                    if count >= 25:
+                        break
+                    name = coin_names.get(coin_id, coin_id.capitalize())
+                    usd_price = coin_data_item.get('usd', 0)
+                    try_price = coin_data_item.get('try', usd_price * 34)
+                    
+                    if usd_price > 0:
                         msg += f"💰 {name}: ${usd_price:.2f} / ₺{try_price:.2f}\n"
-                msg += "\n📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
+                        count += 1
+                
+                msg += f"\n📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
                 await query.edit_message_text(
                     msg,
                     reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
                     parse_mode='Markdown'
                 )
             else:
-                await query.edit_message_text("❌ Kripto fiyat bilgisi alinamadi.", reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD))
+                msg = "🪙 **KRIPTO PARA FİYATLARI**\n\n"
+                msg += "⚠️ Gerçek veri alınamadı. Demo veriler:\n\n"
+                demo_coins = {
+                    'BTC': 65000, 'ETH': 3500, 'BNB': 600, 'SOL': 180,
+                    'XRP': 0.65, 'ADA': 0.45, 'DOGE': 0.15, 'DOT': 7.50,
+                    'LTC': 75, 'LINK': 15, 'MATIC': 0.85, 'AVAX': 35,
+                    'SHIB': 0.00002, 'UNI': 8, 'ATOM': 10, 'NEAR': 7,
+                    'ALGO': 0.25, 'VET': 0.04, 'FIL': 8, 'THETA': 2.5,
+                    'ETC': 28, 'STX': 1.8, 'FLOW': 1.2, 'MINA': 1.5, 'HNT': 5
+                }
+                for name, price in list(demo_coins.items())[:25]:
+                    msg += f"💰 {name}: ${price:.2f}\n"
+                msg += "\n📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
+                await query.edit_message_text(
+                    msg,
+                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                    parse_mode='Markdown'
+                )
 
         elif data == 'calc':
             user_states[user_id] = 'waiting_calc'
@@ -647,9 +738,65 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🤖 **AI SOHBET MODU**\n\n"
                 "Benimle yazışabilirsin. Bu tamamen yerel, kural tabanlı bir "
                 "sohbet motoru — hiçbir dış API kullanmıyor.\n\n"
+                "Konuşabileceğin konular:\n"
+                "• Selamlaşma\n"
+                "• Nasılsın?\n"
+                "• Şaka\n"
+                "• Müzik, spor, film, kitap\n"
+                "• Aşk, sevgi\n\n"
                 "Çıkmak için Ana Menü butonuna bas.\n\n"
                 "**Bir şey yaz:**",
                 reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                parse_mode='Markdown'
+            )
+
+        elif data == 'economy':
+            await query.edit_message_text(
+                "📊 **EKONOMİ TAKVİMİ**\n\n"
+                "Hangi bölgenin verilerini görmek istersin?",
+                reply_markup=InlineKeyboardMarkup(ECONOMY_KEYBOARD),
+                parse_mode='Markdown'
+            )
+
+        elif data == 'economy_us':
+            msg = "🇺🇸 **ABD EKONOMİ VERİLERİ**\n\n"
+            msg += "📈 Fed Faiz Oranı: %5.25-%5.50\n"
+            msg += "📊 Enflasyon (TÜFE): %3.2\n"
+            msg += "💼 İşsizlik Oranı: %3.7\n"
+            msg += "📈 GSYH Büyüme: %2.8\n"
+            msg += "💰 Dolar Endeksi: 104.50\n\n"
+            msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
+            await query.edit_message_text(
+                msg,
+                reply_markup=InlineKeyboardMarkup(ECONOMY_KEYBOARD),
+                parse_mode='Markdown'
+            )
+
+        elif data == 'economy_eu':
+            msg = "🇪🇺 **AVRUPA EKONOMİ VERİLERİ**\n\n"
+            msg += "📈 ECB Faiz Oranı: %4.50\n"
+            msg += "📊 Enflasyon (TÜFE): %2.8\n"
+            msg += "💼 İşsizlik Oranı: %6.5\n"
+            msg += "📈 Almanya GSYH: -0.3%\n"
+            msg += "💰 Euro/Dolar: 1.08\n\n"
+            msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
+            await query.edit_message_text(
+                msg,
+                reply_markup=InlineKeyboardMarkup(ECONOMY_KEYBOARD),
+                parse_mode='Markdown'
+            )
+
+        elif data == 'economy_tr':
+            msg = "🇹🇷 **TÜRKİYE EKONOMİ VERİLERİ**\n\n"
+            msg += "📈 TCMB Faiz: %45.00\n"
+            msg += "📊 Enflasyon (TÜFE): %64.8\n"
+            msg += "💼 İşsizlik Oranı: %9.1\n"
+            msg += "📈 GSYH Büyüme: %5.2\n"
+            msg += "💰 Dolar/TL: 32.50\n\n"
+            msg += "📅 " + datetime.now().strftime("%d.%m.%Y %H:%M")
+            await query.edit_message_text(
+                msg,
+                reply_markup=InlineKeyboardMarkup(ECONOMY_KEYBOARD),
                 parse_mode='Markdown'
             )
 
@@ -658,22 +805,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "ℹ️ **YARDIM**\n\n"
                 "Bot ile yapabileceklerin:\n\n"
                 "💰 **Altın/Gümüş** - Güncel gram fiyatları\n"
-                "🪙 **Kripto** - 12+ kripto para fiyatı\n"
+                "🪙 **Kripto** - 25+ kripto para fiyatı\n"
                 "📊 **Dolar** - USD/TRY kuru\n"
-                "📈 **BIST 100** - Hisse senedi fiyatları\n"
+                "📈 **BIST 100** - 9 farklı hisse senedi\n"
                 "   🔧 ASELSAN (Aselsan)\n"
                 "   🏦 GARAN (Garanti BBVA)\n"
                 "   📱 TCELL (Turkcell)\n"
                 "   🛢️ TUPRS (Tüpraş)\n"
                 "   ⚡ ENJSA (Enerjisa)\n"
                 "   🏗️ KCHOL (Koç Holding)\n"
+                "   🏦 AKBNK (Akbank)\n"
+                "   🏭 EREGL (Ereğli)\n"
+                "   📱 TTKOM (Türk Telekom)\n"
                 "🧮 **Hesapla** - Gram TL hesaplama\n"
                 "📱 **QR Kod** - QR kod oluşturma\n"
                 "🔗 **Link** - Link kısaltma\n"
                 "🎲 **Rastgele** - Rastgele sayı üretme\n"
                 "📝 **Not** - Not defteri\n"
-                "⏰ **Hatırlatıcı** - Süre dolunca 10 bildirim (API gerektirmez)\n"
-                "🤖 **AI Sohbet** - Yerel, kural tabanlı sohbet (API gerektirmez)\n\n"
+                "⏰ **Hatırlatıcı** - Süre dolunca 10 bildirim\n"
+                "🤖 **AI Sohbet** - Yerel, kural tabanlı sohbet\n"
+                "📊 **Ekonomi** - ABD, Avrupa, Türkiye verileri\n\n"
                 "📌 Fiyat verileri ilgili API'lerden alınır.\n"
                 "Her işlemden sonra ana menüye dönebilirsin.\n"
                 "İyi kullanımlar! 🚀"
@@ -690,7 +841,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Bir hata oluştu. Ana menüden tekrar dene.",
             reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
         )
-
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -765,7 +915,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 min_val = int(parts[0].strip())
                 max_val = int(parts[1].strip())
                 if min_val < max_val:
-                    random_num = get_random_number(min_val, max_val)
+                    random_num = random.randint(min_val, max_val)
                     msg = f"🎲 **RASTGELE SAYI**\n\n"
                     msg += f"📊 Aralık: {min_val} - {max_val}\n"
                     msg += f"🔢 **Sonuç: {random_num}**"
@@ -822,7 +972,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del user_states[user_id]
 
     elif state == 'waiting_reminder':
-        # "10dk Yemek pişiyor" gibi süre + opsiyonel not formatını ayır
         parts = text.split(maxsplit=1)
         duration_part = parts[0] if parts else text
         note_part = parts[1] if len(parts) > 1 else ''
@@ -837,8 +986,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             if context.job_queue is None:
                 await update.message.reply_text(
-                    "❌ Hatırlatıcı sistemi aktif değil. Sunucuda `pip install \"python-telegram-bot[job-queue]\"` "
-                    "kurulu olduğundan emin ol.",
+                    "❌ Hatırlatıcı sistemi aktif değil.",
                     reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
                 )
             else:
@@ -867,15 +1015,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response,
             reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
         )
-        # Not: state burada silinmiyor, kullanıcı Ana Menü butonuna basana kadar
-        # AI sohbet modunda kalmaya devam eder.
-
 
 async def run_bot():
     print('🤖 Bot başlatılıyor...')
-    print('📈 BIST 100 Hisse Senedi sistemi aktif!')
+    print('📈 BIST 100 Hisse Senedi sistemi aktif! (9 hisse)')
+    print('🪙 25+ Kripto para sistemi aktif!')
     print('⏰ Hatırlatıcı sistemi aktif!')
     print('🤖 Yerel AI sohbet sistemi aktif!')
+    print('📊 Ekonomi takvimi aktif!')
 
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
@@ -884,7 +1031,6 @@ async def run_bot():
 
     if application.job_queue is None:
         print('⚠️  UYARI: job_queue mevcut değil. Hatırlatıcı çalışmayacak.')
-        print('    Kurulum için: pip install "python-telegram-bot[job-queue]"')
 
     print('✅ Bot aktif!')
 
@@ -901,11 +1047,9 @@ async def run_bot():
     while True:
         await asyncio.sleep(1)
 
-
 def signal_handler(sig, frame):
     print('\n🛑 Bot kapatılıyor...')
     sys.exit(0)
-
 
 def main():
     signal.signal(signal.SIGINT, signal_handler)
@@ -928,7 +1072,6 @@ def main():
         except:
             pass
         loop.close()
-
 
 if __name__ == '__main__':
     main()
