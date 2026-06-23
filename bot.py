@@ -15,9 +15,8 @@ import os
 import signal
 import sys
 
-# ÖNEMLİ: Bu token açık halde. Mümkünse @BotFather'dan /revoke ile yenile
-# ve burada os.environ.get('BOT_TOKEN') ile ortam değişkeninden oku.
-BOT_TOKEN = '8904642273:AAF6sQtbS9ZpoSRLNOeZLO9VFTWq1EsAY9s'
+# Güncellenmiş Yeni Token
+BOT_TOKEN = '8904642273:AAEzGC2sRvbYexDX-4tl0GdgBhAj-9DhYks'
 
 flask_app = Flask(__name__)
 
@@ -428,7 +427,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "⚡ Enerjisa (Enerji)\n"
                 "🏗️ Koç Holding (Konglomerat)\n\n"
                 "📌 Veriler Finnhub API'den alınır.",
-                reply_markup=reply_markup,
+                reply_markup=HISSE_KEYBOARD,
                 parse_mode='Markdown'
             )
 
